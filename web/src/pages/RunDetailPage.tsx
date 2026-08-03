@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, type Run } from '../api'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { formatDuration, useI18n } from '../i18n'
 
 function isActive(status?: string) {
@@ -11,6 +12,8 @@ function isTerminal(status?: string) {
   return status === 'succeeded' || status === 'failed' || status === 'timeout' || status === 'cancelled'
 }
 
+type Dialog = 'cancel' | 'delete' | 'rerun' | null
+
 export default function RunDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -19,7 +22,9 @@ export default function RunDetailPage() {
   const [logs, setLogs] = useState('')
   const [pod, setPod] = useState<string | null>(null)
   const [err, setErr] = useState('')
-  const [busy, setBusy] = useState<'cancel' | 'delete' | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [dialog, setDialog] = useState<Dialog>(null)
+  const [copied, setCopied] = useState(false)
 
   async function load() {
     if (!id) return
@@ -41,32 +46,39 @@ export default function RunDetailPage() {
     return () => window.clearInterval(timer)
   }, [id])
 
-  async function onCancel() {
-    if (!id || !run) return
-    if (!window.confirm(t('cancelConfirm'))) return
-    setBusy('cancel')
+  async function confirmAction() {
+    if (!id || !run || !dialog) return
+    setBusy(true)
     try {
-      const r = await api.cancelRun(id)
-      setRun(r)
-      await load()
+      if (dialog === 'cancel') {
+        const r = await api.cancelRun(id)
+        setRun(r)
+        setDialog(null)
+        await load()
+      } else if (dialog === 'delete') {
+        await api.deleteRun(id)
+        setDialog(null)
+        nav('/')
+        return
+      } else if (dialog === 'rerun') {
+        const created = await api.rerunRun(id)
+        setDialog(null)
+        nav(`/runs/${created.id}`)
+        return
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
+      setDialog(null)
     } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
-  async function onDelete() {
-    if (!id || !run) return
-    if (!window.confirm(t('deleteConfirm'))) return
-    setBusy('delete')
-    try {
-      await api.deleteRun(id)
-      nav('/')
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-      setBusy(null)
-    }
+  async function copyYaml() {
+    if (!run?.job_yaml) return
+    await navigator.clipboard.writeText(run.job_yaml)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
   }
 
   if (!run && !err) {
@@ -98,22 +110,32 @@ export default function RunDetailPage() {
           {run && isActive(run.status) && (
             <button
               type="button"
-              disabled={busy !== null}
-              onClick={onCancel}
-              className="rounded border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-3 py-1.5 text-sm font-semibold text-[var(--danger)] hover:bg-[var(--danger)]/20 disabled:opacity-40"
+              disabled={busy}
+              onClick={() => setDialog('cancel')}
+              className="rounded border border-[var(--warn)]/50 bg-[var(--warn)]/10 px-3 py-1.5 text-sm font-semibold text-[var(--warn)] hover:bg-[var(--warn)]/20 disabled:opacity-40"
             >
-              {busy === 'cancel' ? t('cancelling') : t('cancel')}
+              {t('cancel')}
             </button>
           )}
           {run && isTerminal(run.status) && (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={onDelete}
-              className="rounded border border-[var(--line)] px-3 py-1.5 text-sm hover:border-[var(--danger)]/50 hover:text-[var(--danger)] disabled:opacity-40"
-            >
-              {busy === 'delete' ? t('deleting') : t('deleteRecord')}
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDialog('rerun')}
+                className="rounded border border-[var(--accent-dim)] bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/20 disabled:opacity-40"
+              >
+                {t('rerun')}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDialog('delete')}
+                className="rounded border border-[var(--danger)]/60 bg-[var(--danger)] px-3 py-1.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-40"
+              >
+                {t('deleteRecord')}
+              </button>
+            </>
           )}
           {run?.cilikube_url && (
             <a
@@ -187,12 +209,57 @@ export default function RunDetailPage() {
 
       {run?.job_yaml && (
         <section className="rounded border border-[var(--line)] bg-[var(--panel)] p-4">
-          <h2 className="font-semibold">{t('jobYaml')}</h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-semibold">{t('jobYaml')}</h2>
+            <button
+              type="button"
+              onClick={copyYaml}
+              className="rounded border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--accent)]"
+            >
+              {copied ? t('copied') : t('copyYaml')}
+            </button>
+          </div>
           <pre className="mono mt-3 max-h-80 overflow-auto text-xs text-[var(--muted)]">
             {run.job_yaml}
           </pre>
         </section>
       )}
+
+      <ConfirmDialog
+        open={dialog === 'cancel'}
+        tone="warn"
+        title={t('cancelTitle')}
+        description={`${t('cancelConfirm')}\n\n${run?.name || ''} · ${run?.job_name || ''}`}
+        confirmLabel={busy ? t('cancelling') : t('confirmOk')}
+        cancelLabel={t('confirmCancel')}
+        busy={busy}
+        onClose={() => !busy && setDialog(null)}
+        onConfirm={confirmAction}
+      />
+      <ConfirmDialog
+        open={dialog === 'delete'}
+        tone="danger"
+        title={t('deleteTitle')}
+        description={`${t('deleteConfirm')}\n\n${run?.name || ''} · ${run?.status || ''}`}
+        requireText={run?.name}
+        requireHint={t('deleteTypeHint')}
+        confirmLabel={busy ? t('deleting') : t('confirmDelete')}
+        cancelLabel={t('confirmCancel')}
+        busy={busy}
+        onClose={() => !busy && setDialog(null)}
+        onConfirm={confirmAction}
+      />
+      <ConfirmDialog
+        open={dialog === 'rerun'}
+        tone="warn"
+        title={t('rerunTitle')}
+        description={`${t('rerunConfirm')}\n\n${run?.name || ''}`}
+        confirmLabel={busy ? t('rerunning') : t('confirmRerun')}
+        cancelLabel={t('confirmCancel')}
+        busy={busy}
+        onClose={() => !busy && setDialog(null)}
+        onConfirm={confirmAction}
+      />
     </div>
   )
 }

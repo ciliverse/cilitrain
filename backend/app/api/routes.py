@@ -291,6 +291,32 @@ def get_run(run_id: str, session: Session = Depends(get_session)) -> RunOut:
     return _run_out(run, base, events, snap=snap)
 
 
+@router.post("/runs/{run_id}/rerun", response_model=RunOut)
+def rerun_run(run_id: str, session: Session = Depends(get_session)) -> RunOut:
+    """Clone a finished/failed/cancelled run and submit a new Job (Kubeflow-style retry)."""
+    src = session.get(Run, run_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="run not found")
+    if src.status in ("pending", "running"):
+        raise HTTPException(status_code=409, detail="cannot rerun an active job; stop it first")
+    body = RunCreate(
+        cluster_id=src.cluster_id,
+        name=f"{src.name}-rerun",
+        namespace=src.namespace,
+        template=src.template,
+        image=src.image,
+        command=loads_command(src.command),
+        args=loads_command(src.args),
+        cpu=src.cpu,
+        memory=src.memory,
+        timeout_seconds=src.timeout_seconds,
+        pvc_name=src.pvc_name,
+        pvc_mount_path=src.pvc_mount_path,
+        output_path=src.output_path,
+    )
+    return create_run(body, session)
+
+
 @router.post("/runs/{run_id}/cancel", response_model=RunOut)
 def cancel_run(run_id: str, session: Session = Depends(get_session)) -> RunOut:
     """Stop a pending/running training Job (delete Job + pods), mark cancelled.

@@ -87,6 +87,8 @@ export const api = {
     req<Run>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
   cancelRun: (id: string) =>
     req<Run>(`/api/runs/${id}/cancel`, { method: 'POST' }),
+  rerunRun: (id: string) =>
+    req<Run>(`/api/runs/${id}/rerun`, { method: 'POST' }),
   deleteRun: (id: string) =>
     req<{ status: string }>(`/api/runs/${id}`, { method: 'DELETE' }),
   logs: (id: string) => req<{ pod_name?: string | null; logs: string }>(`/api/runs/${id}/logs`),
