@@ -1,15 +1,25 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, type Run } from '../api'
 import { formatDuration, useI18n } from '../i18n'
 
+function isActive(status?: string) {
+  return status === 'pending' || status === 'running'
+}
+
+function isTerminal(status?: string) {
+  return status === 'succeeded' || status === 'failed' || status === 'timeout' || status === 'cancelled'
+}
+
 export default function RunDetailPage() {
   const { id } = useParams()
+  const nav = useNavigate()
   const { t, statusLabel } = useI18n()
   const [run, setRun] = useState<Run | null>(null)
   const [logs, setLogs] = useState('')
   const [pod, setPod] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  const [busy, setBusy] = useState<'cancel' | 'delete' | null>(null)
 
   async function load() {
     if (!id) return
@@ -31,29 +41,91 @@ export default function RunDetailPage() {
     return () => window.clearInterval(timer)
   }, [id])
 
+  async function onCancel() {
+    if (!id || !run) return
+    if (!window.confirm(t('cancelConfirm'))) return
+    setBusy('cancel')
+    try {
+      const r = await api.cancelRun(id)
+      setRun(r)
+      await load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function onDelete() {
+    if (!id || !run) return
+    if (!window.confirm(t('deleteConfirm'))) return
+    setBusy('delete')
+    try {
+      await api.deleteRun(id)
+      nav('/')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+      setBusy(null)
+    }
+  }
+
   if (!run && !err) {
     return <p className="text-[var(--muted)]">{t('loading')}</p>
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link to="/" className="text-sm text-[var(--muted)] hover:text-[var(--accent)]">
-          {t('backRuns')}
-        </Link>
-        <h1 className="mt-2 text-3xl font-bold">{run?.name || 'Run'}</h1>
-        <p className="mono mt-1 text-sm text-[var(--muted)]">
-          {run ? statusLabel(run.status) : ''} · {run?.job_name} · {run?.namespace} ·{' '}
-          {formatDuration(run?.duration_seconds)}
-        </p>
-        {(run?.pod_phase || run?.status_reason) && (
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            {t('phase')}: <span className="mono text-[var(--text)]">{run?.pod_phase || '—'}</span>
-            {' · '}
-            {t('reason')}:{' '}
-            <span className="mono text-[var(--text)]">{run?.status_reason || '—'}</span>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Link to="/" className="text-sm text-[var(--muted)] hover:text-[var(--accent)]">
+            {t('backRuns')}
+          </Link>
+          <h1 className="mt-2 text-3xl font-bold">{run?.name || 'Run'}</h1>
+          <p className="mono mt-1 text-sm text-[var(--muted)]">
+            {run ? statusLabel(run.status) : ''} · {run?.job_name} · {run?.namespace} ·{' '}
+            {formatDuration(run?.duration_seconds)}
           </p>
-        )}
+          {(run?.pod_phase || run?.status_reason) && (
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {t('phase')}: <span className="mono text-[var(--text)]">{run?.pod_phase || '—'}</span>
+              {' · '}
+              {t('reason')}:{' '}
+              <span className="mono text-[var(--text)]">{run?.status_reason || '—'}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {run && isActive(run.status) && (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={onCancel}
+              className="rounded border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-3 py-1.5 text-sm font-semibold text-[var(--danger)] hover:bg-[var(--danger)]/20 disabled:opacity-40"
+            >
+              {busy === 'cancel' ? t('cancelling') : t('cancel')}
+            </button>
+          )}
+          {run && isTerminal(run.status) && (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={onDelete}
+              className="rounded border border-[var(--line)] px-3 py-1.5 text-sm hover:border-[var(--danger)]/50 hover:text-[var(--danger)] disabled:opacity-40"
+            >
+              {busy === 'delete' ? t('deleting') : t('deleteRecord')}
+            </button>
+          )}
+          {run?.cilikube_url && (
+            <a
+              href={run.cilikube_url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded border border-[var(--line)] px-3 py-1.5 text-sm hover:border-[var(--accent-dim)]"
+            >
+              {t('openCilikube')}
+            </a>
+          )}
+        </div>
       </div>
       {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
       {run?.error_message && (
@@ -66,19 +138,6 @@ export default function RunDetailPage() {
           {run.status_message}
         </p>
       )}
-
-      <div className="flex flex-wrap gap-3">
-        {run?.cilikube_url && (
-          <a
-            href={run.cilikube_url}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded border border-[var(--line)] px-3 py-1.5 text-sm hover:border-[var(--accent-dim)]"
-          >
-            {t('openCilikube')}
-          </a>
-        )}
-      </div>
 
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="rounded border border-[var(--line)] bg-[var(--panel)] p-4 text-sm">
@@ -121,7 +180,7 @@ export default function RunDetailPage() {
             {t('logs')} {pod ? `· ${pod}` : ''}
           </h2>
         </div>
-        <pre className="mono max-h-[28rem] overflow-auto rounded bg-black/35 p-3 text-xs leading-relaxed text-[var(--text)] whitespace-pre-wrap">
+        <pre className="mono max-h-[28rem] overflow-auto whitespace-pre-wrap rounded bg-black/35 p-3 text-xs leading-relaxed text-[var(--text)]">
           {logs || t('none')}
         </pre>
       </section>

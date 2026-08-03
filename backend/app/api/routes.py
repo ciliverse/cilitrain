@@ -291,6 +291,62 @@ def get_run(run_id: str, session: Session = Depends(get_session)) -> RunOut:
     return _run_out(run, base, events, snap=snap)
 
 
+@router.post("/runs/{run_id}/cancel", response_model=RunOut)
+def cancel_run(run_id: str, session: Session = Depends(get_session)) -> RunOut:
+    """Stop a pending/running training Job (delete Job + pods), mark cancelled.
+
+    Aligns with Kubeflow training-client delete_job / console Stop actions.
+    """
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    if run.status in ("succeeded", "failed", "timeout", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"run already terminal ({run.status}); use delete to remove the record",
+        )
+    cluster = session.get(Cluster, run.cluster_id)
+    if not cluster:
+        raise HTTPException(status_code=404, detail="cluster not found")
+
+    kube = DirectKube(cluster)
+    if run.job_name:
+        # Prefer hard stop: delete Job (cascade pods). Suspend alone can leave orphan state.
+        kube.delete_job(run.namespace, run.job_name)
+
+    run.status = "cancelled"
+    run.error_message = run.error_message or "cancelled by user"
+    run.finished_at = datetime.now(timezone.utc)
+    run.updated_at = datetime.now(timezone.utc)
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    snap = kube.pod_snapshot(run.namespace, run.id)
+    return _run_out(run, _resolve_cilikube(session, cluster), snap=snap)
+
+
+@router.delete("/runs/{run_id}")
+def delete_run(run_id: str, session: Session = Depends(get_session)) -> dict[str, str]:
+    """Remove run metadata; also delete leftover Job if still present (best effort)."""
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    if run.status in ("pending", "running"):
+        raise HTTPException(
+            status_code=409,
+            detail="stop the run first (cancel), then delete the record",
+        )
+    cluster = session.get(Cluster, run.cluster_id)
+    if cluster and run.job_name:
+        try:
+            DirectKube(cluster).delete_job(run.namespace, run.job_name)
+        except HTTPException:
+            pass
+    session.delete(run)
+    session.commit()
+    return {"status": "deleted"}
+
+
 @router.get("/runs/{run_id}/logs", response_model=LogsOut)
 def get_logs(run_id: str, session: Session = Depends(get_session)) -> LogsOut:
     run = session.get(Run, run_id)

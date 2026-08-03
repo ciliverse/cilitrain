@@ -44,6 +44,9 @@ def derive_status(job: Any, snap: dict[str, Any]) -> tuple[str, str | None]:
     return "pending", None
 
 
+TERMINAL = frozenset({"succeeded", "failed", "timeout", "cancelled"})
+
+
 def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[str, Any]]:
     snap: dict[str, Any] = {
         "pod_name": None,
@@ -54,9 +57,17 @@ def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[st
     if not run.job_name:
         return run, snap
 
+    # User-cancelled runs stay cancelled even if Job is already gone.
+    if run.status == "cancelled":
+        try:
+            snap = kube.pod_snapshot(run.namespace, run.id)
+        except Exception:  # noqa: BLE001
+            pass
+        return run, snap
+
     job = kube.get_job(run.namespace, run.job_name)
     if job is None:
-        if run.status not in ("failed", "succeeded", "timeout"):
+        if run.status not in TERMINAL:
             run.status = "failed"
             run.error_message = run.error_message or "job not found in cluster"
             run.updated_at = datetime.now(timezone.utc)

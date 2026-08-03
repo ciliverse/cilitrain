@@ -87,6 +87,39 @@ class DirectKube:
                 detail=f"create job failed: {exc.status} {exc.reason} {exc.body}",
             ) from exc
 
+    def delete_job(self, namespace: str, name: str) -> None:
+        """Delete Job and cascade pods (Kubeflow training-client style)."""
+        try:
+            self.batch.delete_namespaced_job(
+                name=name,
+                namespace=namespace,
+                propagation_policy="Background",
+                grace_period_seconds=0,
+            )
+        except ApiException as exc:
+            if exc.status == 404:
+                return
+            raise HTTPException(
+                status_code=502,
+                detail=f"delete job failed: {exc.status} {exc.reason} {exc.body}",
+            ) from exc
+
+    def suspend_job(self, namespace: str, name: str) -> None:
+        """Pause Job via spec.suspend (K8s Job / Kubeflow TrainJob pattern)."""
+        try:
+            self.batch.patch_namespaced_job(
+                name=name,
+                namespace=namespace,
+                body={"spec": {"suspend": True}},
+            )
+        except ApiException as exc:
+            if exc.status == 404:
+                return
+            raise HTTPException(
+                status_code=502,
+                detail=f"suspend job failed: {exc.status} {exc.reason} {exc.body}",
+            ) from exc
+
     def get_job(self, namespace: str, name: str) -> Any | None:
         try:
             return self.batch.read_namespaced_job(name=name, namespace=namespace)

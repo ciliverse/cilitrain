@@ -5,15 +5,24 @@ import { formatDuration, useI18n } from '../i18n'
 
 function statusColor(s: string) {
   if (s === 'succeeded') return 'text-[var(--accent)]'
-  if (s === 'failed' || s === 'timeout') return 'text-[var(--danger)]'
+  if (s === 'failed' || s === 'timeout' || s === 'cancelled') return 'text-[var(--danger)]'
   if (s === 'running') return 'text-[var(--warn)]'
   return 'text-[var(--muted)]'
+}
+
+function isActive(status: string) {
+  return status === 'pending' || status === 'running'
+}
+
+function isTerminal(status: string) {
+  return status === 'succeeded' || status === 'failed' || status === 'timeout' || status === 'cancelled'
 }
 
 export default function RunsPage() {
   const { t, statusLabel } = useI18n()
   const [runs, setRuns] = useState<Run[]>([])
   const [err, setErr] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
 
   async function load() {
     try {
@@ -29,6 +38,32 @@ export default function RunsPage() {
     const id = window.setInterval(load, 4000)
     return () => window.clearInterval(id)
   }, [])
+
+  async function onCancel(id: string) {
+    if (!window.confirm(t('cancelConfirm'))) return
+    setBusyId(id)
+    try {
+      await api.cancelRun(id)
+      await load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function onDelete(id: string) {
+    if (!window.confirm(t('deleteConfirm'))) return
+    setBusyId(id)
+    try {
+      await api.deleteRun(id)
+      await load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   return (
     <div>
@@ -55,12 +90,13 @@ export default function RunsPage() {
               <th className="px-4 py-3 font-medium">{t('colNamespace')}</th>
               <th className="px-4 py-3 font-medium">{t('colDuration')}</th>
               <th className="px-4 py-3 font-medium">{t('colCreated')}</th>
+              <th className="px-4 py-3 font-medium">{t('actions')}</th>
             </tr>
           </thead>
           <tbody>
             {runs.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--muted)]">
+                <td colSpan={7} className="px-4 py-10 text-center text-[var(--muted)]">
                   {t('emptyRuns')}
                 </td>
               </tr>
@@ -88,6 +124,30 @@ export default function RunsPage() {
                 </td>
                 <td className="px-4 py-3 text-[var(--muted)]">
                   {new Date(r.created_at).toLocaleString()}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    {isActive(r.status) && (
+                      <button
+                        type="button"
+                        disabled={busyId === r.id}
+                        onClick={() => onCancel(r.id)}
+                        className="text-xs text-[var(--danger)] hover:underline disabled:opacity-40"
+                      >
+                        {busyId === r.id ? t('cancelling') : t('cancel')}
+                      </button>
+                    )}
+                    {isTerminal(r.status) && (
+                      <button
+                        type="button"
+                        disabled={busyId === r.id}
+                        onClick={() => onDelete(r.id)}
+                        className="text-xs text-[var(--muted)] hover:text-[var(--danger)] hover:underline disabled:opacity-40"
+                      >
+                        {busyId === r.id ? t('deleting') : t('deleteRecord')}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
