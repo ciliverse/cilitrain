@@ -165,14 +165,39 @@ export default function RunDetailPage() {
       )}
 
       <section className="rounded border border-[var(--line)] bg-[var(--panel)] p-4">
-        <h2 className="mb-3 font-semibold">{t('metrics')}</h2>
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <h2 className="font-semibold">{t('metrics')}</h2>
+          <span className="text-[11px] text-[var(--muted)]">{t('chartHint')}</span>
+        </div>
         {metrics?.resource && (
-          <p className="mb-3 text-xs text-[var(--muted)]">
-            {t('resourceMon')}:{' '}
-            {metrics.resource.available
-              ? `CPU ${metrics.resource.cpu || '—'} · Mem ${metrics.resource.memory || '—'}`
-              : t('resourceUnavailable')}
-          </p>
+          <div className="mb-4">
+            {metrics.resource.available && metrics.resource.cpu ? (
+              <div className="flex flex-wrap gap-3">
+                <div className="rounded border border-[var(--warn)]/35 bg-[var(--warn)]/10 px-3 py-2">
+                  <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                    {t('resourceLive')} CPU
+                  </div>
+                  <div className="mono text-lg font-semibold text-[var(--warn)]">
+                    {metrics.resource.cpu}
+                  </div>
+                </div>
+                <div className="rounded border border-[var(--warn)]/35 bg-[var(--warn)]/10 px-3 py-2">
+                  <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                    {t('resourceLive')} Mem
+                  </div>
+                  <div className="mono text-lg font-semibold text-[var(--warn)]">
+                    {metrics.resource.memory}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--muted)]">
+                {metrics.resource.available
+                  ? metrics.resource.message || t('resourceIdle')
+                  : t('resourceUnavailable')}
+              </p>
+            )}
+          </div>
         )}
         {metrics && Object.keys(metrics.summary || {}).length > 0 ? (
           <div className="mb-4 flex flex-wrap gap-3">
@@ -183,7 +208,11 @@ export default function RunDetailPage() {
               >
                 <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">{k}</div>
                 <div className="mono text-xl font-semibold text-[var(--accent)]">
-                  {typeof v === 'number' ? v.toPrecision(4) : String(v)}
+                  {typeof v === 'number'
+                    ? Number.isInteger(v) || ['epochs', 'epoch', 'rows'].includes(k)
+                      ? String(Math.round(v))
+                      : v.toFixed(4)
+                    : String(v)}
                 </div>
               </div>
             ))}
@@ -192,7 +221,12 @@ export default function RunDetailPage() {
           <p className="mb-3 text-sm text-[var(--muted)]">{t('noMetrics')}</p>
         )}
         {metrics && metrics.series?.length > 0 && metrics.chart_keys?.length > 0 && (
-          <MetricsChart series={metrics.series} keys={metrics.chart_keys} />
+          <MetricsChart
+            series={metrics.series}
+            keys={metrics.chart_keys}
+            xKey={metrics.x_key === 'index' ? 'index' : 'epoch'}
+            xLabel={t('epochAxis')}
+          />
         )}
       </section>
 

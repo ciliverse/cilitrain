@@ -56,12 +56,15 @@ export type MetricsView = {
   summary: Record<string, number>
   series: Record<string, number>[]
   chart_keys: string[]
+  x_key?: string
   artifacts: { path: string; size: number }[]
   resource?: {
     available: boolean
-    message?: string
-    cpu?: string
-    memory?: string
+    message?: string | null
+    cpu?: string | null
+    memory?: string | null
+    cpu_cores?: number | null
+    memory_mi?: number | null
     pod_name?: string
   }
 }

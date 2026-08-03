@@ -436,6 +436,40 @@ def get_artifact_file(
     return FileResponse(fp, filename=fp.name)
 
 
+def _parse_cpu_cores(raw: str | None) -> float | None:
+    if not raw:
+        return None
+    s = str(raw)
+    try:
+        if s.endswith("n"):
+            return int(s[:-1]) / 1_000_000_000
+        if s.endswith("u"):
+            return int(s[:-1]) / 1_000_000
+        if s.endswith("m"):
+            return int(s[:-1]) / 1000
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _parse_mem_mi(raw: str | None) -> float | None:
+    if not raw:
+        return None
+    s = str(raw)
+    try:
+        if s.endswith("Ki"):
+            return int(s[:-2]) / 1024
+        if s.endswith("Mi"):
+            return float(s[:-2])
+        if s.endswith("Gi"):
+            return float(s[:-2]) * 1024
+        if s.endswith("Ti"):
+            return float(s[:-2]) * 1024 * 1024
+        return int(s) / (1024 * 1024)
+    except ValueError:
+        return None
+
+
 @router.get("/runs/{run_id}/metrics")
 def get_metrics(run_id: str, session: Session = Depends(get_session)) -> dict:
     run = session.get(Run, run_id)
@@ -443,36 +477,74 @@ def get_metrics(run_id: str, session: Session = Depends(get_session)) -> dict:
         raise HTTPException(status_code=404, detail="run not found")
     logs = ""
     cluster = session.get(Cluster, run.cluster_id)
-    monitor: dict = {"available": False, "message": "metrics-server not installed; showing training metrics only"}
+    monitor: dict = {
+        "available": False,
+        "message": "metrics-server not installed; showing training metrics only",
+    }
     if cluster:
         try:
             kube = DirectKube(cluster)
+            from kubernetes.client import CustomObjectsApi
+
+            mapi = CustomObjectsApi(kube._api_client)
+            server_ok = False
+            try:
+                mapi.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "nodes")
+                server_ok = True
+            except Exception:  # noqa: BLE001
+                server_ok = False
+
             run, snap = sync_run(session, run, kube)
             if snap.get("pod_name"):
-                logs = kube.pod_logs(run.namespace, snap["pod_name"], tail=400)
-                # optional resource metrics
                 try:
-                    from kubernetes.client import CustomObjectsApi
-
-                    api = CustomObjectsApi(kube._api_client)
-                    pod_m = api.get_namespaced_custom_object(
-                        "metrics.k8s.io",
-                        "v1beta1",
-                        run.namespace,
-                        "pods",
-                        snap["pod_name"],
-                    )
-                    containers = pod_m.get("containers") or []
-                    if containers:
-                        c0 = containers[0]
+                    logs = kube.pod_logs(run.namespace, snap["pod_name"], tail=400)
+                except Exception:  # noqa: BLE001
+                    logs = ""
+                if server_ok:
+                    try:
+                        pod_m = mapi.get_namespaced_custom_object(
+                            "metrics.k8s.io",
+                            "v1beta1",
+                            run.namespace,
+                            "pods",
+                            snap["pod_name"],
+                        )
+                        containers = pod_m.get("containers") or []
+                        cpu_raw = None
+                        mem_raw = None
+                        if containers:
+                            usage = containers[0].get("usage") or {}
+                            cpu_raw = usage.get("cpu")
+                            mem_raw = usage.get("memory")
+                        cpu_cores = _parse_cpu_cores(cpu_raw)
+                        mem_mi = _parse_mem_mi(mem_raw)
                         monitor = {
                             "available": True,
-                            "cpu": c0.get("usage", {}).get("cpu"),
-                            "memory": c0.get("usage", {}).get("memory"),
+                            "cpu": f"{cpu_cores * 1000:.0f}m" if cpu_cores is not None else cpu_raw,
+                            "memory": f"{mem_mi:.0f}Mi" if mem_mi is not None else mem_raw,
+                            "cpu_cores": cpu_cores,
+                            "memory_mi": mem_mi,
                             "pod_name": snap["pod_name"],
+                            "message": None,
                         }
-                except Exception:  # noqa: BLE001
-                    pass
+                    except Exception:  # noqa: BLE001
+                        monitor = {
+                            "available": True,
+                            "cpu": None,
+                            "memory": None,
+                            "pod_name": snap.get("pod_name"),
+                            "message": "metrics-server ready; pod metrics only while Running",
+                        }
+                else:
+                    monitor = {
+                        "available": False,
+                        "message": "metrics-server not installed; showing training metrics only",
+                    }
+            elif server_ok:
+                monitor = {
+                    "available": True,
+                    "message": "metrics-server ready; no live pod yet",
+                }
         except HTTPException:
             pass
     view = build_metrics_view(run_id, logs=logs)
