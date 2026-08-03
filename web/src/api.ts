@@ -66,6 +66,7 @@ export type MetricsView = {
     cpu_cores?: number | null
     memory_mi?: number | null
     pod_name?: string
+    nodes?: { name?: string; cpu?: string; memory?: string }[]
   }
 }
 

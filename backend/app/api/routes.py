@@ -436,6 +436,27 @@ def get_artifact_file(
     return FileResponse(fp, filename=fp.name)
 
 
+def _node_resource_summary(mapi) -> list[dict]:
+    try:
+        nodes = mapi.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "nodes")
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for item in (nodes.get("items") or [])[:8]:
+        name = (item.get("metadata") or {}).get("name")
+        usage = item.get("usage") or {}
+        cpu_cores = _parse_cpu_cores(usage.get("cpu"))
+        mem_mi = _parse_mem_mi(usage.get("memory"))
+        out.append(
+            {
+                "name": name,
+                "cpu": f"{cpu_cores * 1000:.0f}m" if cpu_cores is not None else usage.get("cpu"),
+                "memory": f"{mem_mi:.0f}Mi" if mem_mi is not None else usage.get("memory"),
+            }
+        )
+    return out
+
+
 def _parse_cpu_cores(raw: str | None) -> float | None:
     if not raw:
         return None
@@ -528,12 +549,14 @@ def get_metrics(run_id: str, session: Session = Depends(get_session)) -> dict:
                             "message": None,
                         }
                     except Exception:  # noqa: BLE001
+                        nodes = _node_resource_summary(mapi)
                         monitor = {
                             "available": True,
                             "cpu": None,
                             "memory": None,
                             "pod_name": snap.get("pod_name"),
-                            "message": "metrics-server ready; pod metrics only while Running",
+                            "nodes": nodes,
+                            "message": "pod metrics only while Running; showing cluster nodes",
                         }
                 else:
                     monitor = {
@@ -543,6 +566,7 @@ def get_metrics(run_id: str, session: Session = Depends(get_session)) -> dict:
             elif server_ok:
                 monitor = {
                     "available": True,
+                    "nodes": _node_resource_summary(mapi),
                     "message": "metrics-server ready; no live pod yet",
                 }
         except HTTPException:

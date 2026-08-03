@@ -191,11 +191,33 @@ export default function RunDetailPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-[var(--muted)]">
-                {metrics.resource.available
-                  ? metrics.resource.message || t('resourceIdle')
-                  : t('resourceUnavailable')}
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-[var(--muted)]">
+                  {metrics.resource.available
+                    ? metrics.resource.message || t('resourceIdle')
+                    : t('resourceUnavailable')}
+                </p>
+                {!!metrics.resource.nodes?.length && (
+                  <div>
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                      {t('clusterNodes')}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {metrics.resource.nodes.map((n) => (
+                        <div
+                          key={n.name}
+                          className="rounded border border-[var(--line)] bg-black/20 px-2.5 py-1.5 text-xs"
+                        >
+                          <div className="mono text-[var(--text)]">{n.name}</div>
+                          <div className="mono text-[var(--muted)]">
+                            CPU {n.cpu || '—'} · Mem {n.memory || '—'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
