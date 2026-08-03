@@ -457,6 +457,51 @@ def _node_resource_summary(mapi) -> list[dict]:
     return out
 
 
+def _fetch_pod_metrics(mapi, namespace: str, pod_name: str) -> dict | None:
+    try:
+        return mapi.get_namespaced_custom_object(
+            "metrics.k8s.io",
+            "v1beta1",
+            namespace,
+            "pods",
+            pod_name,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    # Fallback: list namespace pod metrics and match by name (same scrape window)
+    try:
+        listed = mapi.list_namespaced_custom_object(
+            "metrics.k8s.io",
+            "v1beta1",
+            namespace,
+            "pods",
+        )
+        for item in listed.get("items") or []:
+            if (item.get("metadata") or {}).get("name") == pod_name:
+                return item
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _sum_container_usage(pod_m: dict) -> tuple[float | None, float | None]:
+    cpu_total = 0.0
+    mem_total = 0.0
+    saw_cpu = False
+    saw_mem = False
+    for c in pod_m.get("containers") or []:
+        usage = c.get("usage") or {}
+        cpu = _parse_cpu_cores(usage.get("cpu"))
+        mem = _parse_mem_mi(usage.get("memory"))
+        if cpu is not None:
+            cpu_total += cpu
+            saw_cpu = True
+        if mem is not None:
+            mem_total += mem
+            saw_mem = True
+    return (cpu_total if saw_cpu else None, mem_total if saw_mem else None)
+
+
 def _parse_cpu_cores(raw: str | None) -> float | None:
     if not raw:
         return None
@@ -522,41 +567,36 @@ def get_metrics(run_id: str, session: Session = Depends(get_session)) -> dict:
                 except Exception:  # noqa: BLE001
                     logs = ""
                 if server_ok:
-                    try:
-                        pod_m = mapi.get_namespaced_custom_object(
-                            "metrics.k8s.io",
-                            "v1beta1",
-                            run.namespace,
-                            "pods",
-                            snap["pod_name"],
-                        )
-                        containers = pod_m.get("containers") or []
-                        cpu_raw = None
-                        mem_raw = None
-                        if containers:
-                            usage = containers[0].get("usage") or {}
-                            cpu_raw = usage.get("cpu")
-                            mem_raw = usage.get("memory")
-                        cpu_cores = _parse_cpu_cores(cpu_raw)
-                        mem_mi = _parse_mem_mi(mem_raw)
+                    pod_m = _fetch_pod_metrics(mapi, run.namespace, snap["pod_name"])
+                    if pod_m:
+                        cpu_cores, mem_mi = _sum_container_usage(pod_m)
                         monitor = {
                             "available": True,
-                            "cpu": f"{cpu_cores * 1000:.0f}m" if cpu_cores is not None else cpu_raw,
-                            "memory": f"{mem_mi:.0f}Mi" if mem_mi is not None else mem_raw,
+                            "pending": False,
+                            "cpu": f"{cpu_cores * 1000:.0f}m" if cpu_cores is not None else None,
+                            "memory": f"{mem_mi:.0f}Mi" if mem_mi is not None else None,
                             "cpu_cores": cpu_cores,
                             "memory_mi": mem_mi,
                             "pod_name": snap["pod_name"],
                             "message": None,
                         }
-                    except Exception:  # noqa: BLE001
+                    else:
+                        # metrics-server scrapes ~every 15s; new Running pods often 404 until first scrape
+                        phase = (snap.get("pod_phase") or "").lower()
+                        waiting = phase == "running" or run.status == "running"
                         nodes = _node_resource_summary(mapi)
                         monitor = {
                             "available": True,
+                            "pending": waiting,
                             "cpu": None,
                             "memory": None,
                             "pod_name": snap.get("pod_name"),
                             "nodes": nodes,
-                            "message": "pod metrics only while Running; showing cluster nodes",
+                            "message": (
+                                "waiting_for_pod_scrape"
+                                if waiting
+                                else "pod_finished_no_live_metrics"
+                            ),
                         }
                 else:
                     monitor = {

@@ -60,6 +60,7 @@ export type MetricsView = {
   artifacts: { path: string; size: number }[]
   resource?: {
     available: boolean
+    pending?: boolean
     message?: string | null
     cpu?: string | null
     memory?: string | null

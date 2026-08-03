@@ -170,20 +170,23 @@ export default function RunDetailPage() {
           <span className="text-[11px] text-[var(--muted)]">{t('chartHint')}</span>
         </div>
         {metrics?.resource && (
-          <div className="mb-4">
+          <div className="mb-4 space-y-3">
             {metrics.resource.available && metrics.resource.cpu ? (
               <div className="flex flex-wrap gap-3">
                 <div className="rounded border border-[var(--warn)]/35 bg-[var(--warn)]/10 px-3 py-2">
                   <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
-                    {t('resourceLive')} CPU
+                    {t('resourceLive')} · CPU
                   </div>
                   <div className="mono text-lg font-semibold text-[var(--warn)]">
                     {metrics.resource.cpu}
                   </div>
+                  <div className="mono text-[10px] text-[var(--muted)]">
+                    {metrics.resource.pod_name}
+                  </div>
                 </div>
                 <div className="rounded border border-[var(--warn)]/35 bg-[var(--warn)]/10 px-3 py-2">
                   <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
-                    {t('resourceLive')} Mem
+                    {t('resourceLive')} · Mem
                   </div>
                   <div className="mono text-lg font-semibold text-[var(--warn)]">
                     {metrics.resource.memory}
@@ -191,32 +194,34 @@ export default function RunDetailPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-[var(--muted)]">
-                  {metrics.resource.available
-                    ? metrics.resource.message || t('resourceIdle')
-                    : t('resourceUnavailable')}
-                </p>
-                {!!metrics.resource.nodes?.length && (
-                  <div>
-                    <div className="mb-1 text-[11px] uppercase tracking-wide text-[var(--muted)]">
-                      {t('clusterNodes')}
+              <p className="text-xs text-[var(--muted)]">
+                {!metrics.resource.available
+                  ? t('resourceUnavailable')
+                  : metrics.resource.pending || metrics.resource.message === 'waiting_for_pod_scrape'
+                    ? t('resourcePending')
+                    : metrics.resource.message === 'pod_finished_no_live_metrics'
+                      ? t('resourceFinished')
+                      : t('resourceIdle')}
+              </p>
+            )}
+            {!!metrics.resource.nodes?.length && (
+              <div>
+                <div className="mb-1 text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                  {t('clusterNodes')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {metrics.resource.nodes.map((n) => (
+                    <div
+                      key={n.name}
+                      className="rounded border border-[var(--line)] bg-black/20 px-2.5 py-1.5 text-xs"
+                    >
+                      <div className="mono text-[var(--text)]">{n.name}</div>
+                      <div className="mono text-[var(--muted)]">
+                        CPU {n.cpu || '—'} · Mem {n.memory || '—'}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {metrics.resource.nodes.map((n) => (
-                        <div
-                          key={n.name}
-                          className="rounded border border-[var(--line)] bg-black/20 px-2.5 py-1.5 text-xs"
-                        >
-                          <div className="mono text-[var(--text)]">{n.name}</div>
-                          <div className="mono text-[var(--muted)]">
-                            CPU {n.cpu || '—'} · Mem {n.memory || '—'}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
             )}
           </div>
