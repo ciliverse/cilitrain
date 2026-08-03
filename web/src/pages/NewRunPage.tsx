@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type Cluster, type Template } from '../api'
+import { useI18n } from '../i18n'
 
 export default function NewRunPage() {
   const nav = useNavigate()
+  const { t } = useI18n()
   const [clusters, setClusters] = useState<Cluster[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [clusterId, setClusterId] = useState('')
@@ -26,21 +28,21 @@ export default function NewRunPage() {
         setClusters(cs)
         setTemplates(ts)
         if (cs[0]) setClusterId(cs[0].id)
-        const t = ts.find((x) => x.id === 'sklearn-cpu') || ts[0]
-        if (t) applyTemplate(t)
+        const tmpl = ts.find((x) => x.id === 'sklearn-cpu') || ts[0]
+        if (tmpl) applyTemplate(tmpl)
       })
       .catch((e) => setErr(String(e.message || e)))
   }, [])
 
-  function applyTemplate(t: Template) {
-    setTemplateId(t.id)
-    setImage(t.image)
-    setCommand(JSON.stringify(t.command, null, 0))
-    setArgs(JSON.stringify(t.args, null, 0))
-    setCpu(t.cpu)
-    setMemory(t.memory)
-    setTimeoutSec(t.timeout_seconds)
-    if (t.id !== 'custom') setName(`${t.id}-${Date.now().toString().slice(-4)}`)
+  function applyTemplate(tmpl: Template) {
+    setTemplateId(tmpl.id)
+    setImage(tmpl.image)
+    setCommand(JSON.stringify(tmpl.command, null, 0))
+    setArgs(JSON.stringify(tmpl.args, null, 0))
+    setCpu(tmpl.cpu)
+    setMemory(tmpl.memory)
+    setTimeoutSec(tmpl.timeout_seconds)
+    if (tmpl.id !== 'custom') setName(`${tmpl.id}-${Date.now().toString().slice(-4)}`)
   }
 
   async function onSubmit(e: FormEvent) {
@@ -74,18 +76,16 @@ export default function NewRunPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold">New run</h1>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        Guardrails: CPU ≤ 2 · memory ≤ 4Gi · timeout ≤ 2h
-      </p>
+      <h1 className="text-3xl font-bold">{t('newTitle')}</h1>
+      <p className="mt-1 text-sm text-[var(--muted)]">{t('newDesc')}</p>
       {err && <p className="mt-4 text-sm text-[var(--danger)]">{err}</p>}
       {clusters.length === 0 && (
-        <p className="mt-4 text-sm text-[var(--warn)]">Add a cluster in Settings first.</p>
+        <p className="mt-4 text-sm text-[var(--warn)]">{t('needCluster')}</p>
       )}
 
       <form onSubmit={onSubmit} className="mt-6 grid max-w-3xl gap-4">
         <label className="text-sm">
-          <span className="text-[var(--muted)]">Cluster</span>
+          <span className="text-[var(--muted)]">{t('cluster')}</span>
           <select
             className={field}
             value={clusterId}
@@ -101,18 +101,18 @@ export default function NewRunPage() {
         </label>
 
         <label className="text-sm">
-          <span className="text-[var(--muted)]">Template</span>
+          <span className="text-[var(--muted)]">{t('template')}</span>
           <select
             className={field}
             value={templateId}
             onChange={(e) => {
-              const t = templates.find((x) => x.id === e.target.value)
-              if (t) applyTemplate(t)
+              const tmpl = templates.find((x) => x.id === e.target.value)
+              if (tmpl) applyTemplate(tmpl)
             }}
           >
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} — {t.description}
+            {templates.map((tmpl) => (
+              <option key={tmpl.id} value={tmpl.id}>
+                {tmpl.name} — {tmpl.description}
               </option>
             ))}
           </select>
@@ -120,11 +120,11 @@ export default function NewRunPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm">
-            <span className="text-[var(--muted)]">Name</span>
+            <span className="text-[var(--muted)]">{t('name')}</span>
             <input className={field} value={name} onChange={(e) => setName(e.target.value)} required />
           </label>
           <label className="text-sm">
-            <span className="text-[var(--muted)]">Namespace</span>
+            <span className="text-[var(--muted)]">{t('namespace')}</span>
             <input
               className={`${field} mono`}
               value={namespace}
@@ -135,12 +135,12 @@ export default function NewRunPage() {
         </div>
 
         <label className="text-sm">
-          <span className="text-[var(--muted)]">Image</span>
+          <span className="text-[var(--muted)]">{t('image')}</span>
           <input className={`${field} mono`} value={image} onChange={(e) => setImage(e.target.value)} required />
         </label>
 
         <label className="text-sm">
-          <span className="text-[var(--muted)]">Command (JSON array)</span>
+          <span className="text-[var(--muted)]">{t('command')}</span>
           <textarea
             className={`${field} mono h-20`}
             value={command}
@@ -148,7 +148,7 @@ export default function NewRunPage() {
           />
         </label>
         <label className="text-sm">
-          <span className="text-[var(--muted)]">Args (JSON array)</span>
+          <span className="text-[var(--muted)]">{t('args')}</span>
           <textarea
             className={`${field} mono h-28`}
             value={args}
@@ -158,11 +158,11 @@ export default function NewRunPage() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="text-sm">
-            <span className="text-[var(--muted)]">CPU</span>
+            <span className="text-[var(--muted)]">{t('cpu')}</span>
             <input className={`${field} mono`} value={cpu} onChange={(e) => setCpu(e.target.value)} />
           </label>
           <label className="text-sm">
-            <span className="text-[var(--muted)]">Memory</span>
+            <span className="text-[var(--muted)]">{t('memory')}</span>
             <input
               className={`${field} mono`}
               value={memory}
@@ -170,7 +170,7 @@ export default function NewRunPage() {
             />
           </label>
           <label className="text-sm">
-            <span className="text-[var(--muted)]">Timeout (s)</span>
+            <span className="text-[var(--muted)]">{t('timeout')}</span>
             <input
               type="number"
               className={`${field} mono`}
@@ -181,7 +181,7 @@ export default function NewRunPage() {
         </div>
 
         <label className="text-sm">
-          <span className="text-[var(--muted)]">PVC name (optional)</span>
+          <span className="text-[var(--muted)]">{t('pvc')}</span>
           <input className={`${field} mono`} value={pvc} onChange={(e) => setPvc(e.target.value)} />
         </label>
 
@@ -190,7 +190,7 @@ export default function NewRunPage() {
           disabled={busy || !clusterId}
           className="rounded border border-[var(--accent-dim)] bg-[var(--accent)]/15 px-4 py-2.5 text-sm font-semibold text-[var(--accent)] disabled:opacity-40"
         >
-          {busy ? 'Submitting…' : 'Submit training Job'}
+          {busy ? t('submitting') : t('submit')}
         </button>
       </form>
     </div>

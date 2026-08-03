@@ -13,6 +13,27 @@ from kubernetes.client.rest import ApiException
 from app.models.entities import Cluster
 
 
+def _normalize_log_text(raw: Any) -> str:
+    """Kubernetes client may return str, bytes, or a bogus repr like \"b''\"."""
+    import ast
+
+    if raw is None:
+        return ""
+    if isinstance(raw, (bytes, bytearray)):
+        return raw.decode("utf-8", errors="replace")
+    text = str(raw)
+    if text in {"b''", 'b""', "b''\n", 'b""\n'}:
+        return ""
+    if len(text) >= 3 and text[0] == "b" and text[1] in {"'", '"'}:
+        try:
+            decoded = ast.literal_eval(text)
+            if isinstance(decoded, (bytes, bytearray)):
+                return decoded.decode("utf-8", errors="replace")
+        except (ValueError, SyntaxError):
+            pass
+    return text
+
+
 class DirectKube:
     def __init__(self, cluster: Cluster) -> None:
         self.cluster = cluster
@@ -90,12 +111,19 @@ class DirectKube:
 
     def pod_logs(self, namespace: str, pod_name: str, tail: int = 500) -> str:
         try:
-            return self.core.read_namespaced_pod_log(
+            raw = self.core.read_namespaced_pod_log(
                 name=pod_name,
                 namespace=namespace,
+                container="trainer",
                 tail_lines=tail,
                 timestamps=True,
+                _preload_content=True,
             )
+            text = _normalize_log_text(raw)
+            if not text.strip():
+                # previous empty responses sometimes surface as the literal "b''"
+                return ""
+            return text
         except ApiException as exc:
             if exc.status in (400, 404):
                 return f"(logs not ready: {exc.reason})"
@@ -103,6 +131,43 @@ class DirectKube:
                 status_code=502,
                 detail=f"read logs failed: {exc.status} {exc.reason}",
             ) from exc
+
+    def pod_snapshot(self, namespace: str, run_id: str) -> dict[str, Any]:
+        pods = self.list_job_pods(namespace, run_id)
+        if not pods:
+            return {
+                "pod_name": None,
+                "pod_phase": None,
+                "status_reason": "WaitingForPod",
+                "status_message": "Job created; waiting for Pod",
+            }
+        pod = sorted(pods, key=lambda p: p.metadata.creation_timestamp or 0)[-1]
+        phase = pod.status.phase if pod.status else None
+        reason = None
+        message = None
+        if pod.status and pod.status.container_statuses:
+            cs = pod.status.container_statuses[0]
+            state = cs.state
+            if state.waiting:
+                reason = state.waiting.reason or "Waiting"
+                message = state.waiting.message
+            elif state.terminated:
+                reason = state.terminated.reason or "Terminated"
+                message = state.terminated.message or f"exit={state.terminated.exit_code}"
+            elif state.running:
+                reason = "Running"
+                message = f"startedAt={state.running.started_at}"
+        elif pod.status and pod.status.conditions:
+            # e.g. PodScheduled false
+            cond = pod.status.conditions[-1]
+            reason = cond.reason or phase
+            message = cond.message
+        return {
+            "pod_name": pod.metadata.name,
+            "pod_phase": phase,
+            "status_reason": reason or phase,
+            "status_message": message,
+        }
 
     def list_events(self, namespace: str, involved_name: str) -> list[str]:
         try:

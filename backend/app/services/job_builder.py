@@ -135,6 +135,7 @@ def build_job(
         "env": [
             {"name": "CILITRAIN_RUN_ID", "value": run_id},
             {"name": "CILITRAIN_OUTPUT", "value": output_path},
+            {"name": "PYTHONUNBUFFERED", "value": "1"},
         ],
         "volumeMounts": volume_mounts,
     }

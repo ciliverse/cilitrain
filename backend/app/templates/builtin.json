@@ -2,10 +2,12 @@
   {
     "id": "custom",
     "name": "Custom",
-    "description": "Bring your own image and command",
+    "description": "Bring your own image and command / 自定义镜像与命令",
     "image": "python:3.12-slim",
-    "command": ["python", "-c"],
-    "args": ["print('hello from CiliTrain'); open('/output/ok.txt','w').write('ok')"],
+    "command": ["bash", "-lc"],
+    "args": [
+      "echo '[cilitrain] start'; python -u -c \"print('hello from CiliTrain'); open('/output/ok.txt','w').write('ok')\"; echo '[cilitrain] done'"
+    ],
     "cpu": "500m",
     "memory": "512Mi",
     "timeout_seconds": 1800
@@ -13,11 +15,11 @@
   {
     "id": "sklearn-cpu",
     "name": "sklearn CPU demo",
-    "description": "Tiny scikit-learn fit on CPU (downloads deps at runtime)",
+    "description": "Tiny scikit-learn fit on CPU / 小型 CPU 训练示例",
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "pip install -q scikit-learn==1.6.1 && python - <<'PY'\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom pathlib import Path\nX, y = load_iris(return_X_y=True)\nclf = LogisticRegression(max_iter=200).fit(X, y)\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\n(out / 'score.txt').write_text(str(clf.score(X, y)))\nprint('score', clf.score(X, y))\nPY"
+      "set -euo pipefail; echo '[cilitrain] installing scikit-learn...'; pip install -q scikit-learn==1.6.1; echo '[cilitrain] training...'; python -u - <<'PY'\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom pathlib import Path\nprint('loading iris...')\nX, y = load_iris(return_X_y=True)\nprint('fitting LogisticRegression...')\nclf = LogisticRegression(max_iter=200).fit(X, y)\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\nscore = clf.score(X, y)\n(out / 'score.txt').write_text(str(score))\nprint('score', score)\nPY\necho '[cilitrain] done'"
     ],
     "cpu": "1",
     "memory": "1Gi",

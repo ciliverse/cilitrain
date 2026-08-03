@@ -46,8 +46,26 @@ def _cluster_out(c: Cluster) -> ClusterOut:
     )
 
 
-def _run_out(run: Run, cilikube_base: str | None = None, events: list[str] | None = None) -> RunOut:
+def _duration_seconds(run: Run) -> int | None:
+    start = run.created_at
+    if start is None:
+        return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    end = run.finished_at or datetime.now(timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return max(0, int((end - start).total_seconds()))
+
+
+def _run_out(
+    run: Run,
+    cilikube_base: str | None = None,
+    events: list[str] | None = None,
+    snap: dict | None = None,
+) -> RunOut:
     base = cilikube_base
+    snap = snap or {}
     return RunOut(
         id=run.id,
         cluster_id=run.cluster_id,
@@ -63,6 +81,11 @@ def _run_out(run: Run, cilikube_base: str | None = None, events: list[str] | Non
         pvc_name=run.pvc_name,
         status=run.status,
         job_name=run.job_name,
+        pod_name=snap.get("pod_name"),
+        pod_phase=snap.get("pod_phase"),
+        status_reason=snap.get("status_reason"),
+        status_message=snap.get("status_message"),
+        duration_seconds=_duration_seconds(run),
         error_message=run.error_message,
         job_yaml=run.job_yaml,
         created_at=run.created_at,
@@ -154,14 +177,15 @@ def list_runs(session: Session = Depends(get_session)) -> list[RunOut]:
     out: list[RunOut] = []
     for run in rows:
         cluster = session.get(Cluster, run.cluster_id)
-        if cluster and run.status in ("pending", "running"):
+        snap: dict = {}
+        if cluster:
             try:
                 kube = DirectKube(cluster)
-                run = sync_run(session, run, kube)
+                run, snap = sync_run(session, run, kube)
             except HTTPException:
                 pass
         base = _resolve_cilikube(session, cluster) if cluster else None
-        out.append(_run_out(run, base))
+        out.append(_run_out(run, base, snap=snap))
     return out
 
 
@@ -228,7 +252,7 @@ def create_run(body: RunCreate, session: Session = Depends(get_session)) -> RunO
 
     try:
         kube.create_job(job)
-        run.status = "running"
+        run.status = "pending"
         run.updated_at = datetime.now(timezone.utc)
     except HTTPException as exc:
         run.status = "failed"
@@ -241,7 +265,8 @@ def create_run(body: RunCreate, session: Session = Depends(get_session)) -> RunO
     session.add(run)
     session.commit()
     session.refresh(run)
-    return _run_out(run, _resolve_cilikube(session, cluster))
+    run, snap = sync_run(session, run, kube)
+    return _run_out(run, _resolve_cilikube(session, cluster), snap=snap)
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)
@@ -251,16 +276,19 @@ def get_run(run_id: str, session: Session = Depends(get_session)) -> RunOut:
         raise HTTPException(status_code=404, detail="run not found")
     cluster = session.get(Cluster, run.cluster_id)
     events: list[str] = []
+    snap: dict = {}
     if cluster:
         try:
             kube = DirectKube(cluster)
-            run = sync_run(session, run, kube)
+            run, snap = sync_run(session, run, kube)
             if run.job_name:
                 events = kube.list_events(run.namespace, run.job_name)
+                if snap.get("pod_name"):
+                    events = events + kube.list_events(run.namespace, snap["pod_name"])
         except HTTPException:
             pass
     base = _resolve_cilikube(session, cluster) if cluster else None
-    return _run_out(run, base, events)
+    return _run_out(run, base, events, snap=snap)
 
 
 @router.get("/runs/{run_id}/logs", response_model=LogsOut)
@@ -272,9 +300,16 @@ def get_logs(run_id: str, session: Session = Depends(get_session)) -> LogsOut:
     if not cluster:
         raise HTTPException(status_code=404, detail="cluster not found")
     kube = DirectKube(cluster)
-    pods = kube.list_job_pods(run.namespace, run.id)
-    if not pods:
-        return LogsOut(pod_name=None, logs="(no pods yet)")
-    pod = sorted(pods, key=lambda p: p.metadata.creation_timestamp or 0)[-1]
-    name = pod.metadata.name
-    return LogsOut(pod_name=name, logs=kube.pod_logs(run.namespace, name))
+    snap = kube.pod_snapshot(run.namespace, run.id)
+    name = snap.get("pod_name")
+    if not name:
+        return LogsOut(pod_name=None, logs="(尚无 Pod，任务可能仍在调度)")
+    text = kube.pod_logs(run.namespace, name)
+    if not text.strip():
+        reason = snap.get("status_reason") or snap.get("pod_phase") or "unknown"
+        text = (
+            f"(暂无日志输出 · Pod={name} · phase={snap.get('pod_phase')} · "
+            f"reason={reason})\n"
+            "提示：镜像拉取或 pip 安装阶段可能长时间无 stdout；新任务模板已加入进度 echo。"
+        )
+    return LogsOut(pod_name=name, logs=text)

@@ -35,6 +35,11 @@ export type Run = {
   pvc_name?: string | null
   status: string
   job_name?: string | null
+  pod_name?: string | null
+  pod_phase?: string | null
+  status_reason?: string | null
+  status_message?: string | null
+  duration_seconds?: number | null
   error_message?: string | null
   job_yaml?: string | null
   created_at: string

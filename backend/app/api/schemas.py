@@ -65,6 +65,11 @@ class RunOut(BaseModel):
     pvc_name: Optional[str] = None
     status: str
     job_name: Optional[str] = None
+    pod_name: Optional[str] = None
+    pod_phase: Optional[str] = None
+    status_reason: Optional[str] = None
+    status_message: Optional[str] = None
+    duration_seconds: Optional[int] = None
     error_message: Optional[str] = None
     job_yaml: Optional[str] = None
     created_at: datetime
