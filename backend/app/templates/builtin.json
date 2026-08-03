@@ -1,0 +1,26 @@
+[
+  {
+    "id": "custom",
+    "name": "Custom",
+    "description": "Bring your own image and command",
+    "image": "python:3.12-slim",
+    "command": ["python", "-c"],
+    "args": ["print('hello from CiliTrain'); open('/output/ok.txt','w').write('ok')"],
+    "cpu": "500m",
+    "memory": "512Mi",
+    "timeout_seconds": 1800
+  },
+  {
+    "id": "sklearn-cpu",
+    "name": "sklearn CPU demo",
+    "description": "Tiny scikit-learn fit on CPU (downloads deps at runtime)",
+    "image": "python:3.12-slim",
+    "command": ["bash", "-lc"],
+    "args": [
+      "pip install -q scikit-learn==1.6.1 && python - <<'PY'\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom pathlib import Path\nX, y = load_iris(return_X_y=True)\nclf = LogisticRegression(max_iter=200).fit(X, y)\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\n(out / 'score.txt').write_text(str(clf.score(X, y)))\nprint('score', clf.score(X, y))\nPY"
+    ],
+    "cpu": "1",
+    "memory": "1Gi",
+    "timeout_seconds": 3600
+  }
+]
