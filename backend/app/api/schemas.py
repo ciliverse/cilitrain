@@ -90,3 +90,36 @@ class SettingsUpdate(BaseModel):
 class LogsOut(BaseModel):
     pod_name: Optional[str] = None
     logs: str
+
+
+class PipelineStepIn(BaseModel):
+    name: str
+    template: str = "custom"
+    image: str
+    command: list[str] = Field(default_factory=list)
+    args: list[str] = Field(default_factory=list)
+    cpu: str = "500m"
+    memory: str = "512Mi"
+    timeout_seconds: int = 1800
+
+
+class PipelineCreate(BaseModel):
+    name: str
+    cluster_id: str
+    namespace: str = "default"
+    steps: list[PipelineStepIn] = Field(min_length=1, max_length=8)
+
+
+class PipelineOut(BaseModel):
+    id: str
+    name: str
+    cluster_id: str
+    namespace: str
+    status: str
+    current_step: int
+    steps: list[dict] = Field(default_factory=list)
+    run_ids: list[str] = Field(default_factory=list)
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    finished_at: Optional[datetime] = None

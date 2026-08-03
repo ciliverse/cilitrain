@@ -4,6 +4,8 @@ import RunsPage from './pages/RunsPage'
 import NewRunPage from './pages/NewRunPage'
 import RunDetailPage from './pages/RunDetailPage'
 import SettingsPage from './pages/SettingsPage'
+import ComparePage from './pages/ComparePage'
+import PipelinesPage from './pages/PipelinesPage'
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { t, lang, setLang } = useI18n()
@@ -18,12 +20,24 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="hidden text-xs text-[var(--muted)] sm:inline">{t('tagline')}</span>
           </Link>
           <div className="flex items-center gap-2">
-            <nav className="flex items-center gap-1">
+            <nav className="flex flex-wrap items-center gap-1">
               <NavLink to="/" end className={({ isActive }) => `${nav} ${isActive ? active : ''}`}>
                 {t('navRuns')}
               </NavLink>
               <NavLink to="/new" className={({ isActive }) => `${nav} ${isActive ? active : ''}`}>
                 {t('navNew')}
+              </NavLink>
+              <NavLink
+                to="/compare"
+                className={({ isActive }) => `${nav} ${isActive ? active : ''}`}
+              >
+                {t('navCompare')}
+              </NavLink>
+              <NavLink
+                to="/pipelines"
+                className={({ isActive }) => `${nav} ${isActive ? active : ''}`}
+              >
+                {t('navPipelines')}
               </NavLink>
               <NavLink
                 to="/settings"
@@ -63,6 +77,8 @@ function AppRoutes() {
         <Route path="/" element={<RunsPage />} />
         <Route path="/new" element={<NewRunPage />} />
         <Route path="/runs/:id" element={<RunDetailPage />} />
+        <Route path="/compare" element={<ComparePage />} />
+        <Route path="/pipelines" element={<PipelinesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Shell>

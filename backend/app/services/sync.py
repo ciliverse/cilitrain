@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlmodel import Session
 
 from app.models.entities import Run
+from app.services.artifacts import collect_from_pod, list_local_artifacts, metrics_path
 from app.services.cluster.direct import DirectKube
+from app.services.metrics import parse_log_metrics, save_metrics
 
 
 def derive_status(job: Any, snap: dict[str, Any]) -> tuple[str, str | None]:
@@ -93,4 +96,53 @@ def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[st
         session.add(run)
         session.commit()
         session.refresh(run)
+
+    # Harvest while Running (Completed pods cannot exec). Templates sleep briefly after write.
+    if run.status in ("running", "succeeded") and snap.get("pod_name"):
+        phase = (snap.get("pod_phase") or "").lower()
+        can_exec = phase == "running" or run.status == "running"
+        if can_exec:
+            try:
+                collect_from_pod(
+                    kube,
+                    run_id=run.id,
+                    namespace=run.namespace,
+                    pod_name=snap["pod_name"],
+                    output_path=run.output_path or "/output",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Always refresh metrics from logs + any collected metrics.json
+        try:
+            mp = metrics_path(run.id)
+            art = None
+            for item in list_local_artifacts(run.id):
+                if item["path"].endswith("metrics.json"):
+                    from app.services.artifacts import read_local_artifact
+
+                    art = json.loads(
+                        read_local_artifact(run.id, item["path"]).read_text(encoding="utf-8")
+                    )
+                    break
+            if art:
+                save_metrics(run.id, art if isinstance(art, dict) else {"value": art})
+            logs = ""
+            try:
+                logs = kube.pod_logs(run.namespace, snap["pod_name"], tail=300)
+            except Exception:  # noqa: BLE001
+                pass
+            series = parse_log_metrics(logs)
+            if series and (not mp.exists() or run.status == "running"):
+                last = series[-1]
+                save_metrics(
+                    run.id,
+                    {
+                        **{k: v for k, v in last.items() if k != "epoch"},
+                        "history": series,
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
     return run, snap

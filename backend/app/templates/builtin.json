@@ -6,7 +6,7 @@
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "echo '[cilitrain] start'; python -u -c \"print('hello from CiliTrain'); open('/output/ok.txt','w').write('ok')\"; echo '[cilitrain] done'"
+      "echo '[cilitrain] start'; python -u -c \"import json,pathlib; pathlib.Path('/output').mkdir(parents=True,exist_ok=True); pathlib.Path('/output/ok.txt').write_text('ok'); pathlib.Path('/output/metrics.json').write_text(json.dumps({'score':1.0})); print('metrics score=1.0'); print('hello from CiliTrain')\"; echo '[cilitrain] done'; sleep 12"
     ],
     "cpu": "500m",
     "memory": "512Mi",
@@ -15,14 +15,40 @@
   {
     "id": "sklearn-cpu",
     "name": "sklearn CPU demo",
-    "description": "Tiny scikit-learn fit on CPU / 小型 CPU 训练示例",
+    "description": "Tiny scikit-learn fit + metrics.json / 小型训练并写出指标",
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "set -euo pipefail; echo '[cilitrain] installing scikit-learn...'; pip install -q scikit-learn==1.6.1; echo '[cilitrain] training...'; python -u - <<'PY'\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom pathlib import Path\nprint('loading iris...')\nX, y = load_iris(return_X_y=True)\nprint('fitting LogisticRegression...')\nclf = LogisticRegression(max_iter=200).fit(X, y)\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\nscore = clf.score(X, y)\n(out / 'score.txt').write_text(str(score))\nprint('score', score)\nPY\necho '[cilitrain] done'"
+      "set -euo pipefail; echo '[cilitrain] installing scikit-learn...'; pip install -q scikit-learn==1.6.1; echo '[cilitrain] training...'; python -u - <<'PY'\nimport json\nfrom pathlib import Path\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.model_selection import train_test_split\nprint('loading iris...')\nX, y = load_iris(return_X_y=True)\nXtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=42)\nprint('metrics epoch=0 loss=1.0 acc=0.0')\nclf = LogisticRegression(max_iter=200).fit(Xtr, ytr)\nacc = float(clf.score(Xte, yte))\nprint(f'metrics epoch=1 loss={1-acc:.4f} acc={acc:.4f}')\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\n(out / 'score.txt').write_text(str(acc))\n(out / 'metrics.json').write_text(json.dumps({'accuracy': acc, 'score': acc, 'model': 'LogisticRegression', 'dataset': 'iris'}, indent=2))\nprint('score', acc)\nPY\necho '[cilitrain] done'; sleep 12"
     ],
     "cpu": "1",
     "memory": "1Gi",
     "timeout_seconds": 3600
+  },
+  {
+    "id": "monitor-demo",
+    "name": "Monitor demo",
+    "description": "Fake epoch metrics for charts / 模拟 epoch 指标便于监控展示",
+    "image": "python:3.12-slim",
+    "command": ["bash", "-lc"],
+    "args": [
+      "python -u - <<'PY'\nimport json, math, time\nfrom pathlib import Path\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\nhistory = []\nfor epoch in range(1, 8):\n    loss = max(0.05, 1.2 * math.exp(-0.35 * epoch) + 0.02)\n    acc = min(0.99, 1 - loss)\n    print(f'metrics epoch={epoch} loss={loss:.4f} acc={acc:.4f}', flush=True)\n    history.append({'epoch': epoch, 'loss': loss, 'acc': acc})\n    time.sleep(1)\npayload = {'accuracy': history[-1]['acc'], 'loss': history[-1]['loss'], 'epochs': len(history), 'history': history}\n(out / 'metrics.json').write_text(json.dumps(payload, indent=2))\n(out / 'summary.txt').write_text(f\"final acc={payload['accuracy']:.4f}\\n\")\nprint('score', payload['accuracy'], flush=True)\nprint('[cilitrain] done', flush=True)\nimport time; time.sleep(12)\nPY"
+    ],
+    "cpu": "200m",
+    "memory": "256Mi",
+    "timeout_seconds": 600
+  },
+  {
+    "id": "preprocess-demo",
+    "name": "Preprocess demo",
+    "description": "Pipeline step 1: write dataset stub / 流水线预处理示例",
+    "image": "python:3.12-slim",
+    "command": ["bash", "-lc"],
+    "args": [
+      "python -u -c \"from pathlib import Path; import time; p=Path('/output'); p.mkdir(parents=True, exist_ok=True); (p/'dataset.txt').write_text('x,y\\n1,0\\n2,1\\n'); (p/'metrics.json').write_text('{\\\"rows\\\":2,\\\"step\\\":\\\"preprocess\\\"}'); print('metrics rows=2 step=1'); print('[cilitrain] preprocess done'); time.sleep(12)\""
+    ],
+    "cpu": "200m",
+    "memory": "256Mi",
+    "timeout_seconds": 600
   }
 ]

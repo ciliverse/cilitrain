@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, type Run } from '../api'
+import { api, type MetricsView, type Run } from '../api'
 import ConfirmDialog from '../components/ConfirmDialog'
+import MetricsChart from '../components/MetricsChart'
 import { formatDuration, useI18n } from '../i18n'
 
 function isActive(status?: string) {
@@ -25,15 +26,17 @@ export default function RunDetailPage() {
   const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
   const [copied, setCopied] = useState(false)
+  const [metrics, setMetrics] = useState<MetricsView | null>(null)
 
   async function load() {
     if (!id) return
     try {
       const r = await api.run(id)
       setRun(r)
-      const l = await api.logs(id)
+      const [l, m] = await Promise.all([api.logs(id), api.metrics(id)])
       setLogs(l.logs)
       setPod(l.pod_name || r.pod_name || null)
+      setMetrics(m)
       setErr('')
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -160,6 +163,69 @@ export default function RunDetailPage() {
           {run.status_message}
         </p>
       )}
+
+      <section className="rounded border border-[var(--line)] bg-[var(--panel)] p-4">
+        <h2 className="mb-3 font-semibold">{t('metrics')}</h2>
+        {metrics?.resource && (
+          <p className="mb-3 text-xs text-[var(--muted)]">
+            {t('resourceMon')}:{' '}
+            {metrics.resource.available
+              ? `CPU ${metrics.resource.cpu || '—'} · Mem ${metrics.resource.memory || '—'}`
+              : t('resourceUnavailable')}
+          </p>
+        )}
+        {metrics && Object.keys(metrics.summary || {}).length > 0 ? (
+          <div className="mb-4 flex flex-wrap gap-3">
+            {Object.entries(metrics.summary).map(([k, v]) => (
+              <div
+                key={k}
+                className="min-w-[7rem] rounded border border-[var(--accent-dim)] bg-[var(--accent)]/10 px-3 py-2"
+              >
+                <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">{k}</div>
+                <div className="mono text-xl font-semibold text-[var(--accent)]">
+                  {typeof v === 'number' ? v.toPrecision(4) : String(v)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mb-3 text-sm text-[var(--muted)]">{t('noMetrics')}</p>
+        )}
+        {metrics && metrics.series?.length > 0 && metrics.chart_keys?.length > 0 && (
+          <MetricsChart series={metrics.series} keys={metrics.chart_keys} />
+        )}
+      </section>
+
+      <section className="rounded border border-[var(--line)] bg-[var(--panel)] p-4">
+        <h2 className="mb-3 font-semibold">{t('artifacts')}</h2>
+        {(metrics?.artifacts || []).length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">{t('noArtifacts')}</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {(metrics?.artifacts || []).map((a) => (
+              <li
+                key={a.path}
+                className="flex items-center justify-between gap-3 border-b border-[var(--line)]/50 py-1.5"
+              >
+                <span className="mono text-[var(--text)]">{a.path}</span>
+                <div className="flex items-center gap-3 text-[var(--muted)]">
+                  <span className="mono text-xs">{a.size} B</span>
+                  {id && (
+                    <a
+                      className="text-xs text-[var(--accent)] hover:underline"
+                      href={api.artifactUrl(id, a.path)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t('download')}
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="rounded border border-[var(--line)] bg-[var(--panel)] p-4 text-sm">

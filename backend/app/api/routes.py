@@ -8,10 +8,14 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from fastapi.responses import FileResponse
+
 from app.api.schemas import (
     ClusterCreate,
     ClusterOut,
     LogsOut,
+    PipelineCreate,
+    PipelineOut,
     RunCreate,
     RunOut,
     SettingsOut,
@@ -20,10 +24,13 @@ from app.api.schemas import (
 )
 from app.config import settings
 from app.db import get_session
-from app.models.entities import AppSettings, Cluster, Run
+from app.models.entities import AppSettings, Cluster, Pipeline, Run
+from app.services.artifacts import list_local_artifacts, read_local_artifact
 from app.services.cilikube import job_deep_link
 from app.services.cluster.direct import DirectKube
 from app.services.job_builder import Guardrails, build_job, dumps_command, job_name_for, loads_command
+from app.services.metrics import build_metrics_view, compare_metrics
+from app.services.pipeline import dumps, loads_ids, loads_steps, mark, pipeline_out
 from app.services.sync import sync_run
 
 router = APIRouter(prefix="/api")
@@ -395,3 +402,265 @@ def get_logs(run_id: str, session: Session = Depends(get_session)) -> LogsOut:
             "提示：镜像拉取或 pip 安装阶段可能长时间无 stdout；新任务模板已加入进度 echo。"
         )
     return LogsOut(pod_name=name, logs=text)
+
+
+@router.get("/runs/{run_id}/artifacts")
+def get_artifacts(run_id: str, session: Session = Depends(get_session)) -> dict:
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    # try harvest if succeeded
+    cluster = session.get(Cluster, run.cluster_id)
+    if cluster and run.status == "succeeded":
+        try:
+            kube = DirectKube(cluster)
+            run, _ = sync_run(session, run, kube)
+        except HTTPException:
+            pass
+    return {"run_id": run_id, "items": list_local_artifacts(run_id)}
+
+
+@router.get("/runs/{run_id}/artifacts/file")
+def get_artifact_file(
+    run_id: str,
+    path: str,
+    session: Session = Depends(get_session),
+):
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    try:
+        fp = read_local_artifact(run_id, path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    return FileResponse(fp, filename=fp.name)
+
+
+@router.get("/runs/{run_id}/metrics")
+def get_metrics(run_id: str, session: Session = Depends(get_session)) -> dict:
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    logs = ""
+    cluster = session.get(Cluster, run.cluster_id)
+    monitor: dict = {"available": False, "message": "metrics-server not installed; showing training metrics only"}
+    if cluster:
+        try:
+            kube = DirectKube(cluster)
+            run, snap = sync_run(session, run, kube)
+            if snap.get("pod_name"):
+                logs = kube.pod_logs(run.namespace, snap["pod_name"], tail=400)
+                # optional resource metrics
+                try:
+                    from kubernetes.client import CustomObjectsApi
+
+                    api = CustomObjectsApi(kube._api_client)
+                    pod_m = api.get_namespaced_custom_object(
+                        "metrics.k8s.io",
+                        "v1beta1",
+                        run.namespace,
+                        "pods",
+                        snap["pod_name"],
+                    )
+                    containers = pod_m.get("containers") or []
+                    if containers:
+                        c0 = containers[0]
+                        monitor = {
+                            "available": True,
+                            "cpu": c0.get("usage", {}).get("cpu"),
+                            "memory": c0.get("usage", {}).get("memory"),
+                            "pod_name": snap["pod_name"],
+                        }
+                except Exception:  # noqa: BLE001
+                    pass
+        except HTTPException:
+            pass
+    view = build_metrics_view(run_id, logs=logs)
+    view["run_id"] = run_id
+    view["status"] = run.status
+    view["name"] = run.name
+    view["resource"] = monitor
+    return view
+
+
+@router.get("/compare/runs")
+def compare_runs(ids: str, session: Session = Depends(get_session)) -> dict:
+    """Compare up to 4 runs: ?ids=id1,id2"""
+    run_ids = [x.strip() for x in ids.split(",") if x.strip()][:4]
+    if len(run_ids) < 2:
+        raise HTTPException(status_code=400, detail="provide at least 2 run ids")
+    views: list[tuple[str, dict]] = []
+    runs_meta = []
+    for rid in run_ids:
+        run = session.get(Run, rid)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"run not found: {rid}")
+        logs = ""
+        cluster = session.get(Cluster, run.cluster_id)
+        if cluster:
+            try:
+                kube = DirectKube(cluster)
+                run, snap = sync_run(session, run, kube)
+                if snap.get("pod_name"):
+                    logs = kube.pod_logs(run.namespace, snap["pod_name"], tail=400)
+            except HTTPException:
+                pass
+        view = build_metrics_view(rid, logs=logs)
+        views.append((rid, view))
+        runs_meta.append(
+            {
+                "id": run.id,
+                "name": run.name,
+                "status": run.status,
+                "template": run.template,
+                "duration_seconds": _duration_seconds(run),
+                "image": run.image,
+                "cpu": run.cpu,
+                "memory": run.memory,
+            }
+        )
+    return {"runs": runs_meta, "comparison": compare_metrics(views), "metrics": {rid: v for rid, v in views}}
+
+
+def _submit_step(session: Session, pipeline: Pipeline, step: dict, step_idx: int) -> RunOut:
+    body = RunCreate(
+        cluster_id=pipeline.cluster_id,
+        name=f"{pipeline.name}-s{step_idx + 1}-{step.get('name', 'step')}"[:63],
+        namespace=pipeline.namespace,
+        template=step.get("template") or "custom",
+        image=step["image"],
+        command=step.get("command") or [],
+        args=step.get("args") or [],
+        cpu=step.get("cpu") or "500m",
+        memory=step.get("memory") or "512Mi",
+        timeout_seconds=int(step.get("timeout_seconds") or 1800),
+    )
+    return create_run(body, session)
+
+
+def _advance_pipeline(session: Session, pipeline: Pipeline) -> Pipeline:
+    if pipeline.status in ("succeeded", "failed", "cancelled"):
+        return pipeline
+    steps = loads_steps(pipeline.steps_json)
+    run_ids = loads_ids(pipeline.run_ids_json)
+    if not steps:
+        return mark(session, pipeline, status="failed", error_message="empty steps")
+
+    if not run_ids:
+        out = _submit_step(session, pipeline, steps[0], 0)
+        run_ids = [out.id]
+        return mark(
+            session,
+            pipeline,
+            status="running",
+            current_step=0,
+            run_ids_json=dumps(run_ids),
+        )
+
+    current_id = run_ids[-1]
+    run = session.get(Run, current_id)
+    if not run:
+        return mark(session, pipeline, status="failed", error_message="missing step run")
+    cluster = session.get(Cluster, run.cluster_id)
+    if cluster:
+        try:
+            kube = DirectKube(cluster)
+            run, _ = sync_run(session, run, kube)
+        except HTTPException as exc:
+            return mark(session, pipeline, status="failed", error_message=str(exc.detail))
+
+    if run.status in ("pending", "running"):
+        return mark(session, pipeline, status="running", current_step=len(run_ids) - 1)
+
+    if run.status in ("failed", "timeout", "cancelled"):
+        return mark(
+            session,
+            pipeline,
+            status="failed",
+            error_message=run.error_message or f"step failed: {run.status}",
+            finished_at=datetime.now(timezone.utc),
+        )
+
+    if run.status == "succeeded":
+        next_idx = len(run_ids)
+        if next_idx >= len(steps):
+            return mark(
+                session,
+                pipeline,
+                status="succeeded",
+                current_step=next_idx - 1,
+                finished_at=datetime.now(timezone.utc),
+            )
+        out = _submit_step(session, pipeline, steps[next_idx], next_idx)
+        run_ids.append(out.id)
+        return mark(
+            session,
+            pipeline,
+            status="running",
+            current_step=next_idx,
+            run_ids_json=dumps(run_ids),
+        )
+    return pipeline
+
+
+@router.get("/pipelines", response_model=list[PipelineOut])
+def list_pipelines(session: Session = Depends(get_session)) -> list[PipelineOut]:
+    rows = session.exec(select(Pipeline).order_by(Pipeline.created_at.desc())).all()
+    out = []
+    for p in rows:
+        p = _advance_pipeline(session, p)
+        out.append(PipelineOut(**pipeline_out(p)))
+    return out
+
+
+@router.post("/pipelines", response_model=PipelineOut)
+def create_pipeline(body: PipelineCreate, session: Session = Depends(get_session)) -> PipelineOut:
+    if not session.get(Cluster, body.cluster_id):
+        raise HTTPException(status_code=404, detail="cluster not found")
+    steps = [s.model_dump() for s in body.steps]
+    p = Pipeline(
+        name=body.name,
+        cluster_id=body.cluster_id,
+        namespace=body.namespace,
+        status="pending",
+        current_step=0,
+        steps_json=dumps(steps),
+        run_ids_json="[]",
+    )
+    session.add(p)
+    session.commit()
+    session.refresh(p)
+    p = _advance_pipeline(session, p)
+    return PipelineOut(**pipeline_out(p))
+
+
+@router.get("/pipelines/{pipeline_id}", response_model=PipelineOut)
+def get_pipeline(pipeline_id: str, session: Session = Depends(get_session)) -> PipelineOut:
+    p = session.get(Pipeline, pipeline_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="pipeline not found")
+    p = _advance_pipeline(session, p)
+    return PipelineOut(**pipeline_out(p))
+
+
+@router.post("/pipelines/{pipeline_id}/cancel", response_model=PipelineOut)
+def cancel_pipeline(pipeline_id: str, session: Session = Depends(get_session)) -> PipelineOut:
+    p = session.get(Pipeline, pipeline_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="pipeline not found")
+    if p.status in ("succeeded", "failed", "cancelled"):
+        raise HTTPException(status_code=409, detail="pipeline already terminal")
+    ids = loads_ids(p.run_ids_json)
+    if ids:
+        try:
+            cancel_run(ids[-1], session)
+        except HTTPException:
+            pass
+    p = mark(
+        session,
+        p,
+        status="cancelled",
+        error_message="cancelled by user",
+        finished_at=datetime.now(timezone.utc),
+    )
+    return PipelineOut(**pipeline_out(p))

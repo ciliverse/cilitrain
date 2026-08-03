@@ -50,3 +50,20 @@ class Run(SQLModel, table=True):
 class AppSettings(SQLModel, table=True):
     id: int = Field(default=1, primary_key=True)
     cilikube_base_url: Optional[str] = None
+
+
+class Pipeline(SQLModel, table=True):
+    """Simple multi-step training pipeline (preprocess → train)."""
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    name: str
+    cluster_id: str = Field(index=True)
+    namespace: str = "default"
+    status: str = "pending"  # pending|running|succeeded|failed|cancelled
+    current_step: int = 0
+    steps_json: str = "[]"  # list of step specs
+    run_ids_json: str = "[]"  # created run ids in order
+    error_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+    finished_at: Optional[datetime] = None
