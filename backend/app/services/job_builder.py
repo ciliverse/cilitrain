@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,12 +14,45 @@ LABEL_MANAGED = "cilitrain.io/managed-by"
 LABEL_RUN = "cilitrain.io/run"
 LABEL_TEMPLATE = "cilitrain.io/template"
 ANN_TIMEOUT = "cilitrain.io/timeout-seconds"
+ANN_HOLD = "cilitrain.io/hold-seconds"
+ANN_GPU = "cilitrain.io/gpu-count"
+GPU_RESOURCE = "nvidia.com/gpu"
+
+HOLD_SECONDS_MIN = 15
+HOLD_SECONDS_MAX = 300
+HOLD_SECONDS_DEFAULT = 45
+
+
+def clamp_hold_seconds(value: int | None) -> int:
+    n = HOLD_SECONDS_DEFAULT if value is None else int(value)
+    return max(HOLD_SECONDS_MIN, min(HOLD_SECONDS_MAX, n))
+
+
+def wrap_with_hold(command: list[str], args: list[str], hold_seconds: int) -> tuple[list[str], list[str]]:
+    """Wrap user argv: run command, touch .cilitrain-done, sleep hold, exit with original code."""
+    hold = clamp_hold_seconds(hold_seconds)
+    user_argv = [str(x) for x in (command or [])] + [str(x) for x in (args or [])]
+    if not user_argv:
+        user_argv = ["true"]
+    joined = shlex.join(user_argv)
+    # set -e: failure jumps to || ec=$?; hold always runs; original exit code preserved.
+    script = (
+        "set -eu; ec=0; "
+        f"{joined} || ec=$?; "
+        'out="${CILITRAIN_OUTPUT:-/output}"; '
+        'mkdir -p "$out" 2>/dev/null || true; '
+        'touch "$out/.cilitrain-done" 2>/dev/null || true; '
+        f'sleep "${{CILITRAIN_HOLD_SECONDS:-{hold}}}"; '
+        'exit "$ec"'
+    )
+    return ["/bin/sh", "-c"], [script]
 
 
 @dataclass
 class Guardrails:
     max_cpu: float = 2.0
     max_memory_gi: float = 4.0
+    max_gpu: int = 2
     default_timeout_seconds: int = 7200
 
 
@@ -48,7 +82,14 @@ def parse_memory_gi(memory: str) -> float:
     raise HTTPException(status_code=400, detail=f"unsupported memory unit: {memory}")
 
 
-def validate_resources(cpu: str, memory: str, timeout_seconds: int, guardrails: Guardrails) -> None:
+def validate_resources(
+    cpu: str,
+    memory: str,
+    timeout_seconds: int,
+    guardrails: Guardrails,
+    *,
+    gpu_count: int = 0,
+) -> None:
     if parse_cpu_cores(cpu) > guardrails.max_cpu + 1e-9:
         raise HTTPException(
             status_code=400,
@@ -58,6 +99,13 @@ def validate_resources(cpu: str, memory: str, timeout_seconds: int, guardrails: 
         raise HTTPException(
             status_code=400,
             detail=f"memory exceeds guardrail ({guardrails.max_memory_gi} Gi)",
+        )
+    if gpu_count < 0:
+        raise HTTPException(status_code=400, detail="gpu_count must be >= 0")
+    if gpu_count > guardrails.max_gpu:
+        raise HTTPException(
+            status_code=400,
+            detail=f"GPU count exceeds guardrail (max_gpu={guardrails.max_gpu})",
         )
     if timeout_seconds <= 0 or timeout_seconds > guardrails.default_timeout_seconds:
         # allow up to default max (2h); reject above
@@ -87,13 +135,17 @@ def build_job(
     cpu: str,
     memory: str,
     timeout_seconds: int,
+    gpu_count: int = 0,
     pvc_name: str | None = None,
     pvc_mount_path: str = "/data",
     output_path: str = "/output",
+    hold_seconds: int | None = None,
     guardrails: Guardrails | None = None,
 ) -> dict[str, Any]:
     g = guardrails or Guardrails()
-    validate_resources(cpu, memory, timeout_seconds, g)
+    validate_resources(cpu, memory, timeout_seconds, g, gpu_count=gpu_count)
+    hold = clamp_hold_seconds(hold_seconds)
+    gpus = int(gpu_count)
 
     jn = job_name_for(run_id)
     labels = {
@@ -124,25 +176,33 @@ def build_job(
         volumes.append({"name": "output", "emptyDir": {}})
         volume_mounts.append({"name": "output", "mountPath": output_path})
 
+    wrap_cmd, wrap_args = wrap_with_hold(command, args, hold)
+
+    requests: dict[str, str] = {"cpu": cpu, "memory": memory}
+    limits: dict[str, str] = {"cpu": cpu, "memory": memory}
+    if gpus > 0:
+        requests[GPU_RESOURCE] = str(gpus)
+        limits[GPU_RESOURCE] = str(gpus)
+
     container: dict[str, Any] = {
         "name": "trainer",
         "image": image,
         "imagePullPolicy": "IfNotPresent",
         "resources": {
-            "requests": {"cpu": cpu, "memory": memory},
-            "limits": {"cpu": cpu, "memory": memory},
+            "requests": requests,
+            "limits": limits,
         },
         "env": [
             {"name": "CILITRAIN_RUN_ID", "value": run_id},
             {"name": "CILITRAIN_OUTPUT", "value": output_path},
+            {"name": "CILITRAIN_HOLD_SECONDS", "value": str(hold)},
+            {"name": "CILITRAIN_GPU_COUNT", "value": str(gpus)},
             {"name": "PYTHONUNBUFFERED", "value": "1"},
         ],
         "volumeMounts": volume_mounts,
+        "command": wrap_cmd,
+        "args": wrap_args,
     }
-    if command:
-        container["command"] = command
-    if args:
-        container["args"] = args
 
     job: dict[str, Any] = {
         "apiVersion": "batch/v1",
@@ -153,6 +213,8 @@ def build_job(
             "labels": labels,
             "annotations": {
                 ANN_TIMEOUT: str(timeout_seconds),
+                ANN_HOLD: str(hold),
+                ANN_GPU: str(gpus),
                 "cilitrain.io/display-name": name,
             },
         },

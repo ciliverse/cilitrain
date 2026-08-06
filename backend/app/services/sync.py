@@ -9,7 +9,17 @@ from typing import Any
 from sqlmodel import Session
 
 from app.models.entities import Run
-from app.services.artifacts import collect_from_pod, list_local_artifacts, metrics_path
+from app.services.artifacts import (
+    HARVEST_DONE,
+    HARVEST_SKIPPED,
+    collect_from_pod,
+    get_harvest_status,
+    harvest_is_done,
+    has_done_marker,
+    list_local_artifacts,
+    metrics_path,
+    set_harvest_status,
+)
 from app.services.cluster.direct import DirectKube
 from app.services.metrics import parse_log_metrics, save_metrics
 
@@ -97,21 +107,47 @@ def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[st
         session.commit()
         session.refresh(run)
 
-    # Harvest while Running (Completed pods cannot exec). Templates sleep briefly after write.
-    if run.status in ("running", "succeeded") and snap.get("pod_name"):
+    # Harvest while Pod still Running (hold window after .cilitrain-done).
+    if run.status in ("running", "succeeded", "failed", "timeout") and snap.get("pod_name"):
         phase = (snap.get("pod_phase") or "").lower()
-        can_exec = phase == "running" or run.status == "running"
-        if can_exec:
-            try:
-                collect_from_pod(
-                    kube,
-                    run_id=run.id,
-                    namespace=run.namespace,
-                    pod_name=snap["pod_name"],
-                    output_path=run.output_path or "/output",
-                )
-            except Exception:  # noqa: BLE001
-                pass
+        can_exec = phase == "running"
+        out_path = run.output_path or "/output"
+        if not harvest_is_done(run.id):
+            if can_exec:
+                try:
+                    marker = has_done_marker(
+                        kube, snap["pod_name"], run.namespace, out_path
+                    )
+                    collected = collect_from_pod(
+                        kube,
+                        run_id=run.id,
+                        namespace=run.namespace,
+                        pod_name=snap["pod_name"],
+                        output_path=out_path,
+                    )
+                    if marker:
+                        set_harvest_status(
+                            run.id,
+                            HARVEST_DONE,
+                            files=len(collected),
+                            marker=True,
+                        )
+                    elif collected:
+                        # Incremental mid-run; stay pending until done marker.
+                        set_harvest_status(
+                            run.id,
+                            get_harvest_status(run.id).get("status") or "pending",
+                            files=len(collected),
+                            marker=False,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            else:
+                local = list_local_artifacts(run.id)
+                if local:
+                    set_harvest_status(run.id, HARVEST_DONE, files=len(local), marker=False)
+                elif run.status in TERMINAL:
+                    set_harvest_status(run.id, HARVEST_SKIPPED, files=0)
 
         # Always refresh metrics from logs + any collected metrics.json
         try:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,11 @@ from kubernetes.stream import stream
 
 from app.config import settings
 from app.services.cluster.direct import DirectKube
+
+DONE_MARKER = ".cilitrain-done"
+HARVEST_PENDING = "pending"
+HARVEST_DONE = "done"
+HARVEST_SKIPPED = "skipped"
 
 
 def artifacts_dir(run_id: str) -> Path:
@@ -24,6 +30,39 @@ def metrics_path(run_id: str) -> Path:
     path = settings.data_dir / "metrics"
     path.mkdir(parents=True, exist_ok=True)
     return path / f"{run_id}.json"
+
+
+def harvest_state_path(run_id: str) -> Path:
+    return artifacts_dir(run_id) / ".harvest.json"
+
+
+def get_harvest_status(run_id: str) -> dict[str, Any]:
+    path = harvest_state_path(run_id)
+    if not path.exists():
+        return {"status": HARVEST_PENDING}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"status": HARVEST_PENDING}
+    if not isinstance(data, dict):
+        return {"status": HARVEST_PENDING}
+    return data
+
+
+def set_harvest_status(run_id: str, status: str, **extra: Any) -> dict[str, Any]:
+    payload = {
+        **get_harvest_status(run_id),
+        "status": status,
+        "updated_at": time.time(),
+        **extra,
+    }
+    path = harvest_state_path(run_id)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
+
+
+def harvest_is_done(run_id: str) -> bool:
+    return get_harvest_status(run_id).get("status") == HARVEST_DONE
 
 
 def _exec(kube: DirectKube, pod_name: str, namespace: str, script: str) -> str:
@@ -55,8 +94,24 @@ def list_remote_files(kube: DirectKube, pod_name: str, namespace: str, output_pa
         namespace,
         f"find {output_path} -type f 2>/dev/null | head -80",
     )
-    files = [line.strip() for line in out.splitlines() if line.strip()]
+    files = []
+    for line in out.splitlines():
+        p = line.strip()
+        if not p:
+            continue
+        if p.rstrip("/").endswith("/" + DONE_MARKER) or p.endswith(DONE_MARKER):
+            continue
+        files.append(p)
     return files
+
+
+def has_done_marker(
+    kube: DirectKube, pod_name: str, namespace: str, output_path: str = "/output"
+) -> bool:
+    marker = output_path.rstrip("/") + "/" + DONE_MARKER
+    out = _exec(kube, pod_name, namespace, f'test -f "{marker}" && echo yes || echo no')
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    return bool(lines) and lines[-1] == "yes"
 
 
 def collect_from_pod(
@@ -78,7 +133,7 @@ def collect_from_pod(
             rel = remote[len(output_path.rstrip("/")) + 1 :]
         elif remote.startswith(output_path):
             rel = remote[len(output_path) :].lstrip("/")
-        if not rel or ".." in rel:
+        if not rel or ".." in rel or rel == DONE_MARKER or rel.endswith("/" + DONE_MARKER):
             continue
         b64 = _exec(
             kube,

@@ -6,7 +6,7 @@
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "echo '[cilitrain] start'; python -u -c \"import json,pathlib; pathlib.Path('/output').mkdir(parents=True,exist_ok=True); pathlib.Path('/output/ok.txt').write_text('ok'); pathlib.Path('/output/metrics.json').write_text(json.dumps({'score':1.0})); print('metrics score=1.0'); print('hello from CiliTrain')\"; echo '[cilitrain] done'; sleep 12"
+      "echo '[cilitrain] start'; python -u -c \"import json,os,pathlib; out=pathlib.Path(os.environ.get('CILITRAIN_OUTPUT','/output')); out.mkdir(parents=True,exist_ok=True); (out/'ok.txt').write_text('ok'); (out/'metrics.json').write_text(json.dumps({'score':1.0})); print('metrics score=1.0'); print('hello from CiliTrain')\"; echo '[cilitrain] done'"
     ],
     "cpu": "500m",
     "memory": "512Mi",
@@ -19,7 +19,7 @@
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "set -euo pipefail; echo '[cilitrain] installing scikit-learn...'; pip install -q scikit-learn==1.6.1; echo '[cilitrain] training...'; python -u - <<'PY'\nimport json\nfrom pathlib import Path\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.model_selection import train_test_split\nprint('loading iris...')\nX, y = load_iris(return_X_y=True)\nXtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=42)\nprint('metrics epoch=0 loss=1.0 acc=0.0')\nclf = LogisticRegression(max_iter=200).fit(Xtr, ytr)\nacc = float(clf.score(Xte, yte))\nprint(f'metrics epoch=1 loss={1-acc:.4f} acc={acc:.4f}')\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\n(out / 'score.txt').write_text(str(acc))\n(out / 'metrics.json').write_text(json.dumps({'accuracy': acc, 'score': acc, 'model': 'LogisticRegression', 'dataset': 'iris'}, indent=2))\nprint('score', acc)\nPY\necho '[cilitrain] done'; sleep 12"
+      "set -euo pipefail; echo '[cilitrain] installing scikit-learn...'; pip install -q scikit-learn==1.6.1; echo '[cilitrain] training...'; python -u - <<'PY'\nimport json, os\nfrom pathlib import Path\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.model_selection import train_test_split\nout = Path(os.environ.get('CILITRAIN_OUTPUT', '/output'))\nout.mkdir(parents=True, exist_ok=True)\nprint('loading iris...')\nX, y = load_iris(return_X_y=True)\nXtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=42)\nprint('metrics epoch=0 loss=1.0 acc=0.0')\nclf = LogisticRegression(max_iter=200).fit(Xtr, ytr)\nacc = float(clf.score(Xte, yte))\nprint(f'metrics epoch=1 loss={1-acc:.4f} acc={acc:.4f}')\n(out / 'score.txt').write_text(str(acc))\n(out / 'metrics.json').write_text(json.dumps({'accuracy': acc, 'score': acc, 'model': 'LogisticRegression', 'dataset': 'iris'}, indent=2))\nprint('score', acc)\nPY\necho '[cilitrain] done'"
     ],
     "cpu": "1",
     "memory": "1Gi",
@@ -32,7 +32,7 @@
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "python -u - <<'PY'\nimport json, math, time\nfrom pathlib import Path\nout = Path('/output')\nout.mkdir(parents=True, exist_ok=True)\nhistory = []\nfor epoch in range(1, 8):\n    loss = max(0.05, 1.2 * math.exp(-0.35 * epoch) + 0.02)\n    acc = min(0.99, 1 - loss)\n    print(f'metrics epoch={epoch} loss={loss:.4f} acc={acc:.4f}', flush=True)\n    history.append({'epoch': epoch, 'loss': loss, 'acc': acc})\n    time.sleep(1)\npayload = {'accuracy': history[-1]['acc'], 'loss': history[-1]['loss'], 'epochs': len(history), 'history': history}\n(out / 'metrics.json').write_text(json.dumps(payload, indent=2))\n(out / 'summary.txt').write_text(f\"final acc={payload['accuracy']:.4f}\\n\")\nprint('score', payload['accuracy'], flush=True)\nprint('[cilitrain] done', flush=True)\nimport time; time.sleep(12)\nPY"
+      "python -u - <<'PY'\nimport json, math, os, time\nfrom pathlib import Path\nout = Path(os.environ.get('CILITRAIN_OUTPUT', '/output'))\nout.mkdir(parents=True, exist_ok=True)\nds = out / 'dataset.txt'\nif ds.exists():\n    rows = max(0, len(ds.read_text().splitlines()) - 1)\n    print(f'metrics rows={rows} step=train-from-pipeline', flush=True)\n    print(f'[cilitrain] loaded shared dataset rows={rows}', flush=True)\nelse:\n    print('[cilitrain] no dataset.txt (standalone run)', flush=True)\nhistory = []\nfor epoch in range(1, 8):\n    loss = max(0.05, 1.2 * math.exp(-0.35 * epoch) + 0.02)\n    acc = min(0.99, 1 - loss)\n    print(f'metrics epoch={epoch} loss={loss:.4f} acc={acc:.4f}', flush=True)\n    history.append({'epoch': epoch, 'loss': loss, 'acc': acc})\n    time.sleep(1)\npayload = {'accuracy': history[-1]['acc'], 'loss': history[-1]['loss'], 'epochs': len(history), 'history': history}\nif ds.exists():\n    payload['dataset_rows'] = max(0, len(ds.read_text().splitlines()) - 1)\n(out / 'metrics.json').write_text(json.dumps(payload, indent=2))\n(out / 'summary.txt').write_text(f\"final acc={payload['accuracy']:.4f}\\n\")\nprint('score', payload['accuracy'], flush=True)\nprint('[cilitrain] done', flush=True)\nPY"
     ],
     "cpu": "200m",
     "memory": "256Mi",
@@ -45,10 +45,25 @@
     "image": "python:3.12-slim",
     "command": ["bash", "-lc"],
     "args": [
-      "python -u -c \"from pathlib import Path; import time; p=Path('/output'); p.mkdir(parents=True, exist_ok=True); (p/'dataset.txt').write_text('x,y\\n1,0\\n2,1\\n'); (p/'metrics.json').write_text('{\\\"rows\\\":2,\\\"step\\\":\\\"preprocess\\\"}'); print('metrics rows=2 step=1'); print('[cilitrain] preprocess done'); time.sleep(12)\""
+      "python -u -c \"import os; from pathlib import Path; p=Path(os.environ.get('CILITRAIN_OUTPUT','/output')); p.mkdir(parents=True, exist_ok=True); (p/'dataset.txt').write_text('x,y\\n1,0\\n2,1\\n'); (p/'metrics.json').write_text('{\\\"rows\\\":2,\\\"step\\\":\\\"preprocess\\\"}'); print('metrics rows=2 step=1'); print('[cilitrain] preprocess done →', p)\""
     ],
     "cpu": "200m",
     "memory": "256Mi",
-    "timeout_seconds": 600
+    "timeout_seconds": 600,
+    "gpu_count": 0
+  },
+  {
+    "id": "gpu-smoke",
+    "name": "GPU smoke (nvidia-smi)",
+    "description": "Needs NVIDIA + device plugin; prints nvidia-smi / 需 GPU 集群，打印 nvidia-smi",
+    "image": "nvidia/cuda:12.4.1-base-ubuntu22.04",
+    "command": ["bash", "-lc"],
+    "args": [
+      "set -euo pipefail; echo '[cilitrain] GPU smoke'; nvidia-smi; mkdir -p \"${CILITRAIN_OUTPUT:-/output}\"; nvidia-smi > \"${CILITRAIN_OUTPUT:-/output}/nvidia-smi.txt\"; echo '{\"gpu_smoke\":true}' > \"${CILITRAIN_OUTPUT:-/output}/metrics.json\"; echo '[cilitrain] done'"
+    ],
+    "cpu": "500m",
+    "memory": "1Gi",
+    "timeout_seconds": 600,
+    "gpu_count": 1
   }
 ]

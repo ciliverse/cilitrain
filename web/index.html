@@ -4,10 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CiliTrain</title>
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('cilitrain.theme')
+          var theme = 'system'
+          if (raw) {
+            var p = JSON.parse(raw)
+            if (p === 'light' || p === 'dark' || p === 'system') theme = p
+            else if (p && (p.theme === 'light' || p.theme === 'dark' || p.theme === 'system')) theme = p.theme
+          }
+          var dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          var resolved = theme === 'system' ? (dark ? 'dark' : 'light') : theme
+          document.documentElement.setAttribute('data-theme', resolved)
+          document.documentElement.setAttribute('data-theme-pref', theme)
+          document.documentElement.style.colorScheme = resolved
+        } catch (e) {}
+      })()
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
       rel="stylesheet"
     />
   </head>

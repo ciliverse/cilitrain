@@ -1,8 +1,23 @@
 import { useMemo, useState } from 'react'
+import { parseApiDate, useI18n } from '../i18n'
 
 type Point = Record<string, number>
 
 const COLORS = ['#3ecf8e', '#e6b84d', '#6cb6ff', '#e36d6d', '#c79bff']
+
+function formatWallClock(ts: number): string {
+  // Unix seconds → local wall clock (MLflow/TensorBoard "Wall" style in tooltip)
+  const d = new Date(ts * 1000)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
 
 function niceTicks(min: number, max: number, count = 4): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1]
@@ -30,13 +45,30 @@ export default function MetricsChart({
   keys,
   xKey = 'epoch',
   xLabel = 'Epoch',
+  wallTsKey = 'ts',
+  /** Fallback origin (unix seconds or ISO date) when points lack absolute ts */
+  wallOrigin,
 }: {
   series: Point[]
   keys: string[]
   xKey?: string
   xLabel?: string
+  /** Absolute unix timestamp field; when present, tooltip also shows wall clock */
+  wallTsKey?: string
+  wallOrigin?: number | string | null
 }) {
+  const { t } = useI18n()
   const [hover, setHover] = useState<number | null>(null)
+
+  const originUnix = useMemo(() => {
+    if (wallOrigin == null || wallOrigin === '') return null
+    if (typeof wallOrigin === 'number' && Number.isFinite(wallOrigin)) {
+      return wallOrigin < 1e12 ? wallOrigin : wallOrigin / 1000
+    }
+    const d = parseApiDate(String(wallOrigin))
+    const ms = d.getTime()
+    return Number.isFinite(ms) ? ms / 1000 : null
+  }, [wallOrigin])
 
   const model = useMemo(() => {
     if (!series.length || !keys.length) return null
@@ -194,7 +226,7 @@ export default function MetricsChart({
                   cy={p.y}
                   r={hover === p.i ? 4.5 : 3}
                   fill={line.color}
-                  stroke="#0c1210"
+                  stroke="var(--bg)"
                   strokeWidth="1"
                 />
               ))}
@@ -227,25 +259,36 @@ export default function MetricsChart({
           ))}
         </svg>
 
-        {hover != null && series[hover] && (
-          <div className="pointer-events-none absolute top-3 right-3 rounded border border-[var(--line)] bg-[var(--panel)]/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
-            <div className="mb-1 mono text-[var(--muted)]">
-              {xLabel} {Number.isFinite(Number(series[hover][xKey])) ? series[hover][xKey] : hover + 1}
+        {hover != null && series[hover] && (() => {
+          const pt = series[hover]
+          const rel = Number.isFinite(Number(pt[xKey])) ? Number(pt[xKey]) : hover + 1
+          let wallTs = Number(pt[wallTsKey])
+          if (!(Number.isFinite(wallTs) && wallTs > 1e9) && originUnix != null) {
+            wallTs = originUnix + rel
+          }
+          const wall =
+            Number.isFinite(wallTs) && wallTs > 1e9 ? formatWallClock(wallTs) : ''
+          const xHeader = wall
+            ? t('timeRelWall').replace('{rel}', String(rel)).replace('{wall}', wall)
+            : `${xLabel} ${rel}`
+          return (
+            <div className="pointer-events-none absolute top-3 right-3 rounded border border-[var(--line)] bg-[var(--panel)]/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
+              <div className="mb-1 mono text-[var(--muted)]">{xHeader}</div>
+              {keys.map((k, ki) => (
+                <div key={k} className="flex items-center gap-2">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ background: COLORS[ki % COLORS.length] }}
+                  />
+                  <span className="text-[var(--muted)]">{k}</span>
+                  <span className="mono text-[var(--text)]">
+                    {Number.isFinite(Number(pt[k])) ? fmt(Number(pt[k])) : '—'}
+                  </span>
+                </div>
+              ))}
             </div>
-            {keys.map((k, ki) => (
-              <div key={k} className="flex items-center gap-2">
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ background: COLORS[ki % COLORS.length] }}
-                />
-                <span className="text-[var(--muted)]">{k}</span>
-                <span className="mono text-[var(--text)]">
-                  {Number.isFinite(Number(series[hover][k])) ? fmt(Number(series[hover][k])) : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+          )
+        })()}
       </div>
 
       <div className="flex flex-wrap gap-4 text-xs text-[var(--muted)]">

@@ -87,6 +87,51 @@ class DirectKube:
                 detail=f"create job failed: {exc.status} {exc.reason} {exc.body}",
             ) from exc
 
+    def create_pvc(
+        self,
+        namespace: str,
+        name: str,
+        *,
+        size: str = "1Gi",
+        access_modes: list[str] | None = None,
+        labels: dict[str, str] | None = None,
+    ) -> Any:
+        """Create a PVC using the cluster default StorageClass (Kind-friendly)."""
+        body = {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": labels
+                or {
+                    "cilitrain.io/managed-by": "cilitrain",
+                },
+            },
+            "spec": {
+                "accessModes": access_modes or ["ReadWriteOnce"],
+                "resources": {"requests": {"storage": size}},
+            },
+        }
+        try:
+            return self.core.create_namespaced_persistent_volume_claim(
+                namespace=namespace, body=body
+            )
+        except ApiException as exc:
+            if exc.status == 409:
+                # Already exists — reuse
+                try:
+                    return self.core.read_namespaced_persistent_volume_claim(name, namespace)
+                except ApiException as read_exc:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"pvc exists but unreadable: {read_exc.status} {read_exc.reason}",
+                    ) from read_exc
+            raise HTTPException(
+                status_code=502,
+                detail=f"create pvc failed: {exc.status} {exc.reason} {exc.body}",
+            ) from exc
+
     def delete_job(self, namespace: str, name: str) -> None:
         """Delete Job and cascade pods (Kubeflow training-client style)."""
         try:
@@ -215,6 +260,27 @@ class DirectKube:
             return out
         except ApiException:
             return []
+
+    def list_node_allocatable(self) -> list[dict[str, Any]]:
+        """Return nodes as plain dicts with status.allocatable for GPU probing."""
+        try:
+            res = self.core.list_node()
+        except ApiException as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"GPU probe failed (list nodes): {exc.status} {exc.reason}",
+            ) from exc
+        out: list[dict[str, Any]] = []
+        for node in res.items or []:
+            allocatable: dict[str, str] = {}
+            status = getattr(node, "status", None)
+            raw_alloc = getattr(status, "allocatable", None) if status else None
+            if raw_alloc:
+                # client may return dict-like Quantity map
+                for key, val in dict(raw_alloc).items():
+                    allocatable[str(key)] = str(val)
+            out.append({"status": {"allocatable": allocatable}})
+        return out
 
     def count_active_jobs(self, namespace: str) -> int:
         try:

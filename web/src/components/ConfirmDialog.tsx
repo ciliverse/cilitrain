@@ -73,7 +73,7 @@ export default function ConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full max-w-md rounded-lg border ${border} bg-[var(--panel)] shadow-[0_20px_60px_rgba(0,0,0,0.55)]`}
+        className={`w-full max-w-md rounded-[var(--radius-xl)] border ${border} bg-[var(--bg-surface)] shadow-[var(--shadow-lg)]`}
       >
         <div className="border-b border-[var(--line)] px-5 py-4">
           <div className="mb-2">

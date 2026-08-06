@@ -52,9 +52,49 @@ def test_build_job_labels():
         cpu="500m",
         memory="1Gi",
         timeout_seconds=1800,
+        hold_seconds=45,
     )
     assert job["kind"] == "Job"
     assert job["metadata"]["labels"][LABEL_MANAGED] == "cilitrain"
     assert job["metadata"]["labels"][LABEL_RUN] == run_id
     assert job["spec"]["activeDeadlineSeconds"] == 1800
     assert job["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["cpu"] == "500m"
+
+
+def test_build_job_hold_wrap():
+    from app.services.job_builder import ANN_HOLD, wrap_with_hold
+
+    cmd, args = wrap_with_hold(["python"], ["-c", "print('x y')"], 45)
+    assert cmd == ["/bin/sh", "-c"]
+    script = args[0]
+    assert ".cilitrain-done" in script
+    assert "sleep" in script
+    # quoted arg preserved via shlex
+    assert "x y" in script
+
+    job = build_job(
+        run_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="demo",
+        namespace="ml",
+        template="custom",
+        image="python:3.12-slim",
+        command=["bash", "-lc"],
+        args=["echo hi"],
+        cpu="500m",
+        memory="1Gi",
+        timeout_seconds=1800,
+        hold_seconds=60,
+    )
+    c = job["spec"]["template"]["spec"]["containers"][0]
+    assert c["command"] == ["/bin/sh", "-c"]
+    assert ".cilitrain-done" in c["args"][0]
+    assert any(e["name"] == "CILITRAIN_HOLD_SECONDS" and e["value"] == "60" for e in c["env"])
+    assert job["metadata"]["annotations"][ANN_HOLD] == "60"
+
+
+def test_clamp_hold_seconds():
+    from app.services.job_builder import clamp_hold_seconds
+
+    assert clamp_hold_seconds(5) == 15
+    assert clamp_hold_seconds(500) == 300
+    assert clamp_hold_seconds(45) == 45

@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from app.services.artifacts import list_local_artifacts, metrics_path, read_local_artifact
+from app.services.artifacts import get_harvest_status, list_local_artifacts, metrics_path, read_local_artifact
 
 # metrics epoch=1 loss=0.42 acc=0.91
 LINE_RE = re.compile(
@@ -135,6 +135,7 @@ def build_metrics_view(run_id: str, logs: str = "") -> dict[str, Any]:
         "x_key": "epoch" if any("epoch" in p for p in series) else "index",
         "final": final,
         "artifacts": list_local_artifacts(run_id),
+        "harvest": get_harvest_status(run_id),
     }
 
 

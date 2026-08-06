@@ -13,6 +13,8 @@ dependencies = [
   "kubernetes>=33.1.0",
   "httpx>=0.28.0",
   "python-multipart>=0.0.20",
+  "PyJWT>=2.9.0",
+  "bcrypt>=4.2.0",
 ]
 
 [project.optional-dependencies]

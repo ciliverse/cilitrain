@@ -41,12 +41,12 @@ export default function ComparePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">{t('compareTitle')}</h1>
+        <h1 className="page-title">{t('compareTitle')}</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">{t('compareDesc')}</p>
       </div>
       {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
 
-      <section className="rounded border border-[var(--line)] bg-[var(--panel)] p-4">
+      <section className="panel panel-pad">
         <h2 className="mb-3 font-semibold">{t('pickRuns')}</h2>
         <ul className="max-h-72 space-y-2 overflow-auto text-sm">
           {finished.map((r) => (
@@ -80,7 +80,7 @@ export default function ComparePage() {
       </section>
 
       {result && (
-        <section className="overflow-auto rounded border border-[var(--line)] bg-[var(--panel)]">
+        <section className="data-table-wrap overflow-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-[var(--line)] text-[var(--muted)]">
               <tr>

@@ -1,0 +1,60 @@
+# Moved: use local chart + overlay under helm-charts.
+#   Chart:  /root/helm-charts/kube-prometheus-stack  (86.1.1)
+#   Values: /root/helm-charts/kube-prometheus-stack/values-kind.yaml
+#   Mirror: /root/helm-charts/kube-prometheus-stack/values-kind-mirror.yaml
+#   Docs:   /root/helm-charts/kube-prometheus-stack/DEPLOY-KIND.md
+#
+# helm upgrade --install kps /root/helm-charts/kube-prometheus-stack \
+#   -n monitoring --create-namespace \
+#   -f /root/helm-charts/kube-prometheus-stack/values-kind.yaml
+
+alertmanager:
+  enabled: false
+grafana:
+  enabled: false
+defaultRules:
+  create: false
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+prometheus:
+  prometheusSpec:
+    retention: 6h
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 1Gi
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    podMonitorSelector: {}

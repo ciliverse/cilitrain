@@ -2,14 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, type Run } from '../api'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { formatDuration, useI18n } from '../i18n'
-
-function statusColor(s: string) {
-  if (s === 'succeeded') return 'text-[var(--accent)]'
-  if (s === 'failed' || s === 'timeout' || s === 'cancelled') return 'text-[var(--danger)]'
-  if (s === 'running') return 'text-[var(--warn)]'
-  return 'text-[var(--muted)]'
-}
+import StatusBadge from '../components/StatusBadge'
+import { formatDuration, formatLocalDateTime, useI18n } from '../i18n'
 
 function isActive(status: string) {
   return status === 'pending' || status === 'running'
@@ -92,104 +86,96 @@ export default function RunsPage() {
     }
   }
 
-  const chip = (id: Filter, label: string) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => setFilter(id)}
-      className={`rounded px-3 py-1 text-xs font-medium ${
-        filter === id
-          ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
-          : 'text-[var(--muted)] hover:text-[var(--text)]'
-      }`}
-    >
-      {label}
-    </button>
-  )
-
   return (
     <div>
-      <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{t('runsTitle')}</h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">{t('runsDesc')}</p>
+          <h1 className="page-title">{t('runsTitle')}</h1>
+          <p className="page-desc">{t('runsDesc')}</p>
         </div>
-        <Link
-          to="/new"
-          className="rounded border border-[var(--accent-dim)] bg-[var(--accent)]/15 px-4 py-2 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/25"
-        >
+        <Link to="/new" className="btn btn-primary">
           {t('newRunBtn')}
         </Link>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex rounded border border-[var(--line)] bg-[var(--panel)] p-0.5">
-          {chip('all', t('filterAll'))}
-          {chip('active', t('filterActive'))}
-          {chip('done', t('filterDone'))}
+      <div className="toolbar">
+        <div className="seg">
+          <button type="button" className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
+            {t('filterAll')}
+          </button>
+          <button
+            type="button"
+            className={filter === 'active' ? 'on' : ''}
+            onClick={() => setFilter('active')}
+          >
+            {t('filterActive')}
+          </button>
+          <button type="button" className={filter === 'done' ? 'on' : ''} onClick={() => setFilter('done')}>
+            {t('filterDone')}
+          </button>
         </div>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={t('searchPlaceholder')}
-          className="min-w-[14rem] flex-1 rounded border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 text-sm"
+          className="field search"
+          style={{ marginTop: 0 }}
         />
       </div>
 
       {err && <p className="mb-4 text-sm text-[var(--danger)]">{err}</p>}
-      <div className="overflow-hidden rounded border border-[var(--line)] bg-[var(--panel)]">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+
+      <div className="data-table-wrap">
+        <table className="data-table">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">{t('colName')}</th>
-              <th className="px-4 py-3 font-medium">{t('colStatus')}</th>
-              <th className="px-4 py-3 font-medium">{t('colTemplate')}</th>
-              <th className="px-4 py-3 font-medium">{t('colNamespace')}</th>
-              <th className="px-4 py-3 font-medium">{t('colDuration')}</th>
-              <th className="px-4 py-3 font-medium">{t('colCreated')}</th>
-              <th className="px-4 py-3 font-medium">{t('actions')}</th>
+              <th>{t('colName')}</th>
+              <th>{t('colStatus')}</th>
+              <th>{t('colTemplate')}</th>
+              <th>{t('colNamespace')}</th>
+              <th>{t('colDuration')}</th>
+              <th>{t('colCreated')}</th>
+              <th>{t('actions')}</th>
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-[var(--muted)]">
+                <td colSpan={7} className="px-4 py-12 text-center text-[var(--muted)]">
                   {t('emptyRuns')}
                 </td>
               </tr>
             )}
             {visible.map((r) => (
-              <tr key={r.id} className="border-t border-[var(--line)]/70 hover:bg-white/2">
-                <td className="px-4 py-3">
-                  <Link to={`/runs/${r.id}`} className="font-medium hover:text-[var(--accent)]">
+              <tr key={r.id}>
+                <td>
+                  <Link to={`/runs/${r.id}`} className="font-medium text-[var(--text)] hover:text-[var(--accent-text)]">
                     {r.name}
                   </Link>
-                  <div className="mono text-[11px] text-[var(--muted)]">{r.job_name}</div>
+                  <div className="mono text-[11px] text-[var(--muted-2)]">{r.job_name}</div>
                 </td>
-                <td className="px-4 py-3">
-                  <div className={`mono ${statusColor(r.status)}`}>{statusLabel(r.status)}</div>
+                <td>
+                  <StatusBadge status={r.status} label={statusLabel(r.status)} />
                   {(r.status_reason || r.pod_phase) && (
-                    <div className="mono text-[11px] text-[var(--muted)]">
+                    <div className="mono mt-1 text-[11px] text-[var(--muted-2)]">
                       {[r.pod_phase, r.status_reason].filter(Boolean).join(' · ')}
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3">{r.template}</td>
-                <td className="px-4 py-3 mono">{r.namespace}</td>
-                <td className="px-4 py-3 mono text-[var(--muted)]">
-                  {formatDuration(r.duration_seconds)}
+                <td>
+                  <span className="badge badge-neutral">{r.template}</span>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted)]">
-                  {new Date(r.created_at).toLocaleString()}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-2">
+                <td className="mono text-[var(--muted)]">{r.namespace}</td>
+                <td className="mono text-[var(--muted)]">{formatDuration(r.duration_seconds)}</td>
+                <td className="text-[var(--muted)]">{formatLocalDateTime(r.created_at)}</td>
+                <td>
+                  <div className="flex flex-wrap gap-1.5">
                     {isActive(r.status) && (
                       <button
                         type="button"
                         disabled={busyId === r.id}
                         onClick={() => setDialog({ kind: 'cancel', run: r })}
-                        className="rounded border border-[var(--warn)]/40 px-2 py-0.5 text-xs text-[var(--warn)] hover:bg-[var(--warn)]/10 disabled:opacity-40"
+                        className="btn btn-warn btn-sm"
                       >
                         {t('cancel')}
                       </button>
@@ -200,7 +186,7 @@ export default function RunsPage() {
                           type="button"
                           disabled={busyId === r.id}
                           onClick={() => setDialog({ kind: 'rerun', run: r })}
-                          className="rounded border border-[var(--accent-dim)] px-2 py-0.5 text-xs text-[var(--accent)] hover:bg-[var(--accent)]/10 disabled:opacity-40"
+                          className="btn btn-secondary btn-sm"
                         >
                           {t('rerun')}
                         </button>
@@ -208,11 +194,31 @@ export default function RunsPage() {
                           type="button"
                           disabled={busyId === r.id}
                           onClick={() => setDialog({ kind: 'delete', run: r })}
-                          className="rounded border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-2 py-0.5 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger)]/20 disabled:opacity-40"
+                          className="btn btn-ghost btn-sm text-[var(--danger)]"
                         >
                           {t('deleteRecord')}
                         </button>
                       </>
+                    )}
+                    {r.cilikube_links?.configured &&
+                    (r.cilikube_links.job || r.cilikube_links.console) ? (
+                      <a
+                        href={r.cilikube_links.job || r.cilikube_links.console || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-ghost btn-sm text-[var(--accent-text)]"
+                        title={t('openCilikube')}
+                      >
+                        CiliKube
+                      </a>
+                    ) : (
+                      <Link
+                        to="/settings#cilikube"
+                        className="btn btn-ghost btn-sm"
+                        title={t('cilikubeNotConfigured')}
+                      >
+                        CiliKube
+                      </Link>
                     )}
                   </div>
                 </td>

@@ -18,6 +18,16 @@ export type Template = {
   cpu: string
   memory: string
   timeout_seconds: number
+  gpu_count?: number
+}
+
+export type CiliKubeLinks = {
+  configured: boolean
+  console?: string | null
+  job?: string | null
+  pod?: string | null
+  events?: string | null
+  pvc?: string | null
 }
 
 export type Run = {
@@ -31,6 +41,7 @@ export type Run = {
   args: string[]
   cpu: string
   memory: string
+  gpu_count?: number
   timeout_seconds: number
   pvc_name?: string | null
   status: string
@@ -46,6 +57,7 @@ export type Run = {
   updated_at: string
   finished_at?: string | null
   cilikube_url?: string | null
+  cilikube_links?: CiliKubeLinks
   events: string[]
 }
 
@@ -58,6 +70,7 @@ export type MetricsView = {
   chart_keys: string[]
   x_key?: string
   artifacts: { path: string; size: number }[]
+  harvest?: { status?: string; files?: number; marker?: boolean }
   resource?: {
     available: boolean
     pending?: boolean
@@ -67,6 +80,10 @@ export type MetricsView = {
     cpu_cores?: number | null
     memory_mi?: number | null
     pod_name?: string
+    prometheus?: boolean
+    frozen?: boolean
+    series_source?: 'prometheus' | 'metrics-server' | string
+    series?: Record<string, number>[]
     nodes?: { name?: string; cpu?: string; memory?: string }[]
   }
 }
@@ -80,17 +97,46 @@ export type Pipeline = {
   current_step: number
   steps: Record<string, unknown>[]
   run_ids: string[]
+  pvc_name?: string | null
   error_message?: string | null
   created_at: string
   updated_at: string
   finished_at?: string | null
 }
 
+const TOKEN_KEY = 'cilitrain_token'
+
+export type AuthUser = {
+  id: string
+  username: string
+  role: string
+  is_active: boolean
+  must_change_password: boolean
+}
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string | null) {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-    ...init,
-  })
+  const token = getToken()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  }
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(path, { ...init, headers })
+  if (res.status === 401 && !path.startsWith('/api/auth/login')) {
+    setToken(null)
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login'
+    }
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -107,17 +153,40 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => req<{ status: string }>('/api/health'),
+  authStatus: () =>
+    req<{ auth_disabled: boolean; auth_required: boolean; has_users: boolean }>('/api/auth/status'),
+  login: (username: string, password: string) =>
+    req<{ access_token: string; user: AuthUser }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: () => req<{ status: string }>('/api/auth/logout', { method: 'POST' }),
+  me: () => req<AuthUser>('/api/auth/me'),
+  users: () => req<AuthUser[]>('/api/users'),
+  createUser: (body: { username: string; password: string; role: string }) =>
+    req<AuthUser>('/api/users', { method: 'POST', body: JSON.stringify(body) }),
+  addGrant: (userId: string, cluster_id: string, namespace: string) =>
+    req(`/api/users/${userId}/grants`, {
+      method: 'POST',
+      body: JSON.stringify({ cluster_id, namespace }),
+    }),
   templates: () => req<Template[]>('/api/templates'),
   clusters: () => req<Cluster[]>('/api/clusters'),
   createCluster: (body: Record<string, unknown>) =>
     req<Cluster>('/api/clusters', { method: 'POST', body: JSON.stringify(body) }),
   deleteCluster: (id: string) => req<{ status: string }>(`/api/clusters/${id}`, { method: 'DELETE' }),
-  settings: () => req<{ cilikube_base_url?: string | null }>('/api/settings'),
+  settings: () =>
+    req<{ cilikube_base_url?: string | null; cilikube_configured?: boolean; max_gpu?: number }>(
+      '/api/settings',
+    ),
   putSettings: (cilikube_base_url: string | null) =>
-    req<{ cilikube_base_url?: string | null }>('/api/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ cilikube_base_url }),
-    }),
+    req<{ cilikube_base_url?: string | null; cilikube_configured?: boolean; max_gpu?: number }>(
+      '/api/settings',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ cilikube_base_url }),
+      },
+    ),
   runs: () => req<Run[]>('/api/runs'),
   run: (id: string) => req<Run>(`/api/runs/${id}`),
   createRun: (body: Record<string, unknown>) =>

@@ -78,14 +78,14 @@ export default function PipelinesPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">{t('pipelinesTitle')}</h1>
+        <h1 className="page-title">{t('pipelinesTitle')}</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">{t('pipelinesDesc')}</p>
       </div>
       {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
 
       <form
         onSubmit={onCreate}
-        className="grid max-w-xl gap-3 rounded border border-[var(--line)] bg-[var(--panel)] p-4"
+        className="grid max-w-xl gap-3 panel panel-pad"
       >
         <h2 className="font-semibold">{t('newPipeline')}</h2>
         <label className="text-sm">
@@ -126,12 +126,13 @@ export default function PipelinesPage() {
 
       <div className="space-y-3">
         {pipelines.map((p) => (
-          <div key={p.id} className="rounded border border-[var(--line)] bg-[var(--panel)] p-4 text-sm">
+          <div key={p.id} className="panel panel-pad text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-lg font-semibold">{p.name}</div>
                 <div className="mono text-xs text-[var(--muted)]">
                   {statusLabel(p.status)} · {t('step')} {p.current_step + 1}/{p.steps.length}
+                  {p.pvc_name ? ` · ${t('pipelinePvc')} ${p.pvc_name}` : ''}
                 </div>
               </div>
               {(p.status === 'pending' || p.status === 'running') && (

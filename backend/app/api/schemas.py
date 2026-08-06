@@ -1,7 +1,23 @@
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer
+
+
+def _dt_to_utc_z(dt: datetime) -> str:
+    """Serialize as UTC ISO-8601 with Z so browsers parse as UTC, not local."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+# Stored as UTC (naive or aware); JSON always emits ...Z for local-timezone UI.
+UtcDateTime = Annotated[
+    datetime,
+    PlainSerializer(_dt_to_utc_z, return_type=str, when_used="json"),
+]
 
 
 class ClusterCreate(BaseModel):
@@ -16,10 +32,11 @@ class ClusterOut(BaseModel):
     id: str
     name: str
     context: Optional[str] = None
+    # Path/content never exposed to non-admin (platform-held credentials)
     kubeconfig_path: Optional[str] = None
     has_kubeconfig_content: bool = False
     cilikube_base_url: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class TemplateOut(BaseModel):
@@ -32,6 +49,7 @@ class TemplateOut(BaseModel):
     cpu: str
     memory: str
     timeout_seconds: int
+    gpu_count: int = 0
 
 
 class RunCreate(BaseModel):
@@ -44,15 +62,26 @@ class RunCreate(BaseModel):
     args: list[str] = Field(default_factory=list)
     cpu: str = "500m"
     memory: str = "1Gi"
+    gpu_count: int = 0
     timeout_seconds: int = 7200
     pvc_name: Optional[str] = None
     pvc_mount_path: str = "/data"
     output_path: str = "/output"
 
 
+class CiliKubeLinks(BaseModel):
+    configured: bool = False
+    console: Optional[str] = None
+    job: Optional[str] = None
+    pod: Optional[str] = None
+    events: Optional[str] = None
+    pvc: Optional[str] = None
+
+
 class RunOut(BaseModel):
     id: str
     cluster_id: str
+    owner_user_id: Optional[str] = None
     name: str
     namespace: str
     template: str
@@ -61,6 +90,7 @@ class RunOut(BaseModel):
     args: list[str]
     cpu: str
     memory: str
+    gpu_count: int = 0
     timeout_seconds: int
     pvc_name: Optional[str] = None
     status: str
@@ -72,15 +102,18 @@ class RunOut(BaseModel):
     duration_seconds: Optional[int] = None
     error_message: Optional[str] = None
     job_yaml: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    finished_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime
+    finished_at: Optional[UtcDateTime] = None
     cilikube_url: Optional[str] = None
+    cilikube_links: CiliKubeLinks = Field(default_factory=CiliKubeLinks)
     events: list[str] = Field(default_factory=list)
 
 
 class SettingsOut(BaseModel):
     cilikube_base_url: Optional[str] = None
+    cilikube_configured: bool = False
+    max_gpu: int = 2
 
 
 class SettingsUpdate(BaseModel):
@@ -100,6 +133,7 @@ class PipelineStepIn(BaseModel):
     args: list[str] = Field(default_factory=list)
     cpu: str = "500m"
     memory: str = "512Mi"
+    gpu_count: int = 0
     timeout_seconds: int = 1800
 
 
@@ -114,12 +148,14 @@ class PipelineOut(BaseModel):
     id: str
     name: str
     cluster_id: str
+    owner_user_id: Optional[str] = None
     namespace: str
     status: str
     current_step: int
     steps: list[dict] = Field(default_factory=list)
     run_ids: list[str] = Field(default_factory=list)
+    pvc_name: Optional[str] = None
     error_message: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    finished_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime
+    finished_at: Optional[UtcDateTime] = None
