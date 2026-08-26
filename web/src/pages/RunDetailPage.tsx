@@ -4,7 +4,8 @@ import { api, type MetricsView, type Run } from '../api'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MetricsChart from '../components/MetricsChart'
 import StatusBadge from '../components/StatusBadge'
-import { formatDuration, useI18n } from '../i18n'
+import { formatApiMessage, formatDuration, formatLocalDateTime, useI18n } from '../i18n'
+import '../styles/runs.css'
 
 function isActive(status?: string) {
   return status === 'pending' || status === 'running'
@@ -14,12 +15,16 @@ function isTerminal(status?: string) {
   return status === 'succeeded' || status === 'failed' || status === 'timeout' || status === 'cancelled'
 }
 
+function isMissingCluster(msg: string) {
+  return /cluster not found/i.test(msg)
+}
+
 type Dialog = 'cancel' | 'delete' | 'rerun' | null
 
 export default function RunDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
-  const { t, statusLabel } = useI18n()
+  const { t, statusLabel, lang } = useI18n()
   const [run, setRun] = useState<Run | null>(null)
   const [logs, setLogs] = useState('')
   const [pod, setPod] = useState<string | null>(null)
@@ -34,11 +39,15 @@ export default function RunDetailPage() {
     try {
       const r = await api.run(id)
       setRun(r)
-      const [l, m] = await Promise.all([api.logs(id), api.metrics(id)])
-      setLogs(l.logs)
-      setPod(l.pod_name || r.pod_name || null)
-      setMetrics(m)
-      setErr('')
+      try {
+        const [l, m] = await Promise.all([api.logs(id), api.metrics(id)])
+        setLogs(l.logs)
+        setPod(l.pod_name || r.pod_name || null)
+        setMetrics(m)
+        setErr('')
+      } catch (side) {
+        setErr(side instanceof Error ? side.message : String(side))
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     }
@@ -54,13 +63,16 @@ export default function RunDetailPage() {
         const r = await api.run(id)
         if (cancelled) return
         setRun(r)
-        const [l, m] = await Promise.all([api.logs(id), api.metrics(id)])
-        if (cancelled) return
-        setLogs(l.logs)
-        setPod(l.pod_name || r.pod_name || null)
-        setMetrics(m)
-        setErr('')
-        // Stop polling after terminal — history is frozen; avoid "moving" charts/nodes
+        try {
+          const [l, m] = await Promise.all([api.logs(id), api.metrics(id)])
+          if (cancelled) return
+          setLogs(l.logs)
+          setPod(l.pod_name || r.pod_name || null)
+          setMetrics(m)
+          setErr('')
+        } catch (side) {
+          if (!cancelled) setErr(side instanceof Error ? side.message : String(side))
+        }
         if (!isTerminal(r.status)) {
           timer = window.setTimeout(tick, 3000)
         }
@@ -109,35 +121,57 @@ export default function RunDetailPage() {
     if (!run?.job_yaml) return
     await navigator.clipboard.writeText(run.job_yaml)
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
+    window.setTimeout(() => setCopied(false), 1600)
   }
+
+  const crumb = (
+    <nav className="runs-crumb" aria-label={t('detailBack')}>
+      <Link to="/">{t('detailBack')}</Link>
+      <span className="runs-crumb-sep" aria-hidden="true">
+        /
+      </span>
+      <span className="runs-crumb-now">{run?.name || t('loading')}</span>
+    </nav>
+  )
 
   if (!run && !err) {
-    return <p className="text-[var(--muted)]">{t('loading')}</p>
+    return (
+      <div className="runs-detail">
+        {crumb}
+        <dl className="runs-spec" aria-busy="true" aria-label={t('loading')}>
+          <div>
+            <dt>{t('detailStatus')}</dt>
+            <dd>
+              <span className="runs-skel runs-skel-sm" />
+            </dd>
+          </div>
+          <div>
+            <dt>{t('detailDuration')}</dt>
+            <dd>
+              <span className="runs-skel runs-skel-sm" />
+            </dd>
+          </div>
+          <div>
+            <dt>{t('detailCreated')}</dt>
+            <dd>
+              <span className="runs-skel runs-skel-lg" />
+            </dd>
+          </div>
+        </dl>
+      </div>
+    )
   }
 
+  const clusterGone = Boolean(err && isMissingCluster(err))
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="runs-detail space-y-6">
+      {crumb}
+
+      <div className="page-head">
         <div>
-          <Link to="/" className="text-sm text-[var(--muted)] hover:text-[var(--accent)]">
-            {t('backRuns')}
-          </Link>
-          <h1 className="page-title mt-2">{run?.name || 'Run'}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]">
-            {run && <StatusBadge status={run.status} label={statusLabel(run.status)} />}
-            <span className="mono">
-              {run?.job_name} · {run?.namespace} · {formatDuration(run?.duration_seconds)}
-            </span>
-          </div>
-          {(run?.pod_phase || run?.status_reason) && (
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              {t('phase')}: <span className="mono text-[var(--text)]">{run?.pod_phase || '—'}</span>
-              {' · '}
-              {t('reason')}:{' '}
-              <span className="mono text-[var(--text)]">{run?.status_reason || '—'}</span>
-            </p>
-          )}
+          <h1 className="page-title">{run?.name || 'Run'}</h1>
+          {run?.job_name ? <p className="runs-job mono">{run.job_name}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {run && isActive(run.status) && (
@@ -145,7 +179,7 @@ export default function RunDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => setDialog('cancel')}
-              className="rounded border border-[var(--warn)]/50 bg-[var(--warn)]/10 px-3 py-1.5 text-sm font-semibold text-[var(--warn)] hover:bg-[var(--warn)]/20 disabled:opacity-40"
+              className="btn btn-warn"
             >
               {t('cancel')}
             </button>
@@ -156,7 +190,7 @@ export default function RunDetailPage() {
                 type="button"
                 disabled={busy}
                 onClick={() => setDialog('rerun')}
-                className="rounded border border-[var(--accent-dim)] bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/20 disabled:opacity-40"
+                className="btn btn-secondary"
               >
                 {t('rerun')}
               </button>
@@ -164,7 +198,7 @@ export default function RunDetailPage() {
                 type="button"
                 disabled={busy}
                 onClick={() => setDialog('delete')}
-                className="rounded border border-[var(--danger)]/60 bg-[var(--danger)] px-3 py-1.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-40"
+                className="btn btn-ghost text-[var(--danger)]"
               >
                 {t('deleteRecord')}
               </button>
@@ -173,6 +207,40 @@ export default function RunDetailPage() {
         </div>
       </div>
 
+      <dl className="runs-spec">
+        <div>
+          <dt>{t('detailStatus')}</dt>
+          <dd>{run && <StatusBadge status={run.status} label={statusLabel(run.status)} />}</dd>
+        </div>
+        <div>
+          <dt>{t('detailDuration')}</dt>
+          <dd className="mono">{formatDuration(run?.duration_seconds)}</dd>
+        </div>
+        <div>
+          <dt>{t('detailCreated')}</dt>
+          <dd>{formatLocalDateTime(run?.created_at, lang)}</dd>
+        </div>
+        {run?.namespace ? (
+          <div>
+            <dt>{t('namespace')}</dt>
+            <dd className="mono">{run.namespace}</dd>
+          </div>
+        ) : null}
+        {run?.pod_phase ? (
+          <div>
+            <dt>{t('phase')}</dt>
+            <dd className="mono">{run.pod_phase}</dd>
+          </div>
+        ) : null}
+        {run?.status_reason ? (
+          <div>
+            <dt>{t('reason')}</dt>
+            <dd className="mono">{run.status_reason}</dd>
+          </div>
+        ) : null}
+      </dl>
+
+      {!clusterGone && (
       <section className="panel panel-pad">
         <h2 className="text-sm font-semibold">{t('cilikubePanelTitle')}</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">{t('cilikubePanelDesc')}</p>
@@ -207,23 +275,31 @@ export default function RunDetailPage() {
         ) : (
           <p className="mt-3 text-sm text-[var(--warn)]">
             {t('cilikubeNotConfigured')}{' '}
-            <Link to="/settings#cilikube" className="underline hover:text-[var(--accent)]">
-              {t('goSettings')}
+            <Link to="/clusters#cilikube" className="underline hover:text-[var(--accent)]">
+              {t('goClusters')}
             </Link>
           </p>
         )}
       </section>
+      )}
 
-      {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
-      {run?.error_message && (
-        <p className="rounded border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm">
-          {run.error_message}
+      {err && (
+        <p className={`flash ${isMissingCluster(err) ? 'flash-warn' : 'flash-err'}`}>
+          {isMissingCluster(err) ? (
+            <>
+              {t('clusterMissing')}{' '}
+              <Link to="/clusters">{t('goClusters')}</Link>
+            </>
+          ) : (
+            err
+          )}
         </p>
       )}
+      {run?.error_message && (
+        <p className="flash flash-err">{formatApiMessage(run.error_message, t)}</p>
+      )}
       {run?.status_message && (
-        <p className="rounded border border-[var(--line)] bg-black/20 px-3 py-2 text-sm text-[var(--muted)]">
-          {run.status_message}
-        </p>
+        <p className="flash">{formatApiMessage(run.status_message, t)}</p>
       )}
 
       <section className="panel panel-pad">
@@ -315,7 +391,7 @@ export default function RunDetailPage() {
                   {metrics.resource.nodes.map((n) => (
                     <div
                       key={n.name}
-                      className="rounded border border-[var(--line)] bg-black/20 px-2.5 py-1.5 text-xs"
+                      className="rounded border border-[var(--line)] bg-[var(--bg)] px-2.5 py-1.5 text-xs"
                     >
                       <div className="mono text-[var(--text)]">{n.name}</div>
                       <div className="mono text-[var(--muted)]">
@@ -411,25 +487,29 @@ export default function RunDetailPage() {
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="panel panel-pad text-sm">
           <h2 className="font-semibold">{t('spec')}</h2>
-          <dl className="mt-3 space-y-1 text-[var(--muted)]">
+          <dl className="spec-grid mt-3 text-[var(--muted)]">
             <div>
-              Template: <span className="text-[var(--text)]">{run?.template}</span>
+              <dt>Template</dt>
+              <dd className="text-[var(--text)]">{run?.template}</dd>
             </div>
             <div>
-              Image: <span className="mono text-[var(--text)]">{run?.image}</span>
+              <dt>Image</dt>
+              <dd className="mono text-[var(--text)]">{run?.image}</dd>
             </div>
             <div>
-              Resources:{' '}
-              <span className="mono text-[var(--text)]">
+              <dt>Resources</dt>
+              <dd className="mono text-[var(--text)]">
                 {run?.cpu} / {run?.memory}
                 {(run?.gpu_count ?? 0) > 0 ? ` · GPU×${run?.gpu_count}` : ''}
-              </span>
+              </dd>
             </div>
             <div>
-              Timeout: <span className="mono text-[var(--text)]">{run?.timeout_seconds}s</span>
+              <dt>Timeout</dt>
+              <dd className="mono text-[var(--text)]">{run?.timeout_seconds}s</dd>
             </div>
             <div>
-              Pod: <span className="mono text-[var(--text)]">{run?.pod_name || '—'}</span>
+              <dt>Pod</dt>
+              <dd className="mono text-[var(--text)]">{run?.pod_name || '—'}</dd>
             </div>
           </dl>
         </div>
@@ -450,9 +530,7 @@ export default function RunDetailPage() {
             {t('logs')} {pod ? `· ${pod}` : ''}
           </h2>
         </div>
-        <pre className="mono max-h-[28rem] overflow-auto whitespace-pre-wrap rounded bg-black/35 p-3 text-xs leading-relaxed text-[var(--text)]">
-          {logs || t('none')}
-        </pre>
+        <pre className="log-pane mono">{logs || t('none')}</pre>
       </section>
 
       {run?.job_yaml && (
@@ -462,14 +540,12 @@ export default function RunDetailPage() {
             <button
               type="button"
               onClick={copyYaml}
-              className="rounded border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--accent)]"
+              className={`btn btn-ghost btn-sm runs-copy${copied ? ' is-copied' : ''}`}
             >
-              {copied ? t('copied') : t('copyYaml')}
+              {copied ? t('detailYamlCopied') : t('copyYaml')}
             </button>
           </div>
-          <pre className="mono mt-3 max-h-80 overflow-auto text-xs text-[var(--muted)]">
-            {run.job_yaml}
-          </pre>
+          <pre className="log-pane mono mt-3 max-h-80">{run.job_yaml}</pre>
         </section>
       )}
 

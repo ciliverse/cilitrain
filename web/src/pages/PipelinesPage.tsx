@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type Cluster, type Pipeline, type Template } from '../api'
-import { useI18n } from '../i18n'
+import StatusBadge from '../components/StatusBadge'
+import { formatApiMessage, useI18n } from '../i18n'
 
 export default function PipelinesPage() {
   const { t, statusLabel } = useI18n()
@@ -11,6 +12,7 @@ export default function PipelinesPage() {
   const [name, setName] = useState('demo-pipeline')
   const [clusterId, setClusterId] = useState('')
   const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
 
   async function refresh() {
     const [ps, cs, ts] = await Promise.all([api.pipelines(), api.clusters(), api.templates()])
@@ -41,6 +43,7 @@ export default function PipelinesPage() {
       setErr('templates missing')
       return
     }
+    setBusy(true)
     try {
       await api.createPipeline({
         name,
@@ -72,35 +75,41 @@ export default function PipelinesPage() {
       await refresh()
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex))
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="page-title">{t('pipelinesTitle')}</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">{t('pipelinesDesc')}</p>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">{t('pipelinesTitle')}</h1>
+          <p className="page-desc">{t('pipelinesDesc')}</p>
+        </div>
       </div>
-      {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
+      {err && <p className="flash flash-err">{err}</p>}
+      {clusters.length === 0 && (
+        <p className="flash flash-warn">
+          {t('needCluster')}{' '}
+          <Link to="/clusters">{t('goClusters')}</Link>
+        </p>
+      )}
 
-      <form
-        onSubmit={onCreate}
-        className="grid max-w-xl gap-3 panel panel-pad"
-      >
-        <h2 className="font-semibold">{t('newPipeline')}</h2>
-        <label className="text-sm">
-          <span className="text-[var(--muted)]">{t('pipelineName')}</span>
+      <form onSubmit={onCreate} className="panel panel-pad pipe-create">
+        <label className="label">
+          {t('pipelineName')}
           <input
-            className="mt-1 w-full rounded border border-[var(--line)] bg-black/20 px-3 py-2"
+            className="field"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
           />
         </label>
-        <label className="text-sm">
-          <span className="text-[var(--muted)]">{t('cluster')}</span>
+        <label className="label">
+          {t('cluster')}
           <select
-            className="mt-1 w-full rounded border border-[var(--line)] bg-black/20 px-3 py-2"
+            className="field"
             value={clusterId}
             onChange={(e) => setClusterId(e.target.value)}
             required
@@ -112,60 +121,73 @@ export default function PipelinesPage() {
             ))}
           </select>
         </label>
-        <p className="text-xs text-[var(--muted)]">
-          {t('step')} 1: preprocess-demo → {t('step')} 2: monitor-demo / sklearn-cpu
-        </p>
-        <button
-          type="submit"
-          disabled={!clusterId}
-          className="rounded border border-[var(--accent-dim)] bg-[var(--accent)]/15 px-4 py-2 text-sm font-semibold text-[var(--accent)] disabled:opacity-40"
-        >
-          {t('createPipeline')}
+        <button type="submit" disabled={!clusterId || busy || clusters.length === 0} className="btn btn-primary">
+          {busy ? t('pipeCreating') : t('createPipeline')}
         </button>
+        <p className="pipe-create-hint">{t('pipeStepsHint')}</p>
       </form>
 
-      <div className="space-y-3">
-        {pipelines.map((p) => (
-          <div key={p.id} className="panel panel-pad text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-lg font-semibold">{p.name}</div>
-                <div className="mono text-xs text-[var(--muted)]">
-                  {statusLabel(p.status)} · {t('step')} {p.current_step + 1}/{p.steps.length}
-                  {p.pvc_name ? ` · ${t('pipelinePvc')} ${p.pvc_name}` : ''}
-                </div>
-              </div>
-              {(p.status === 'pending' || p.status === 'running') && (
-                <button
-                  type="button"
-                  className="rounded border border-[var(--warn)]/40 px-2 py-1 text-xs text-[var(--warn)]"
-                  onClick={async () => {
-                    await api.cancelPipeline(p.id)
-                    await refresh()
-                  }}
-                >
-                  {t('cancel')}
-                </button>
-              )}
-            </div>
-            {p.error_message && (
-              <p className="mt-2 text-xs text-[var(--danger)]">{p.error_message}</p>
-            )}
-            <div className="mt-3">
-              <div className="mb-1 text-xs text-[var(--muted)]">{t('pipelineRuns')}</div>
-              <ul className="space-y-1">
-                {p.run_ids.map((rid, i) => (
-                  <li key={rid}>
-                    <Link className="mono text-[var(--accent)] hover:underline" to={`/runs/${rid}`}>
-                      s{i + 1}: {rid.slice(0, 8)}…
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
+      {pipelines.length === 0 ? (
+        <div className="empty-state">
+          <p className="empty-title">{t('pipeEmpty')}</p>
+        </div>
+      ) : (
+        <div className="pipe-list">
+          <div className="pipe-row pipe-row-head">
+            <span>{t('name')}</span>
+            <span>{t('colStatus')}</span>
+            <span>{t('step')}</span>
+            <span>{t('pipelineRuns')}</span>
+            <span />
           </div>
-        ))}
-      </div>
+          {pipelines.map((p) => (
+            <div key={p.id} className="pipe-row">
+              <div className="pipe-row-name">
+                <div>{p.name}</div>
+                <div className="pipe-row-id mono">{p.id.slice(0, 12)}</div>
+              </div>
+              <StatusBadge status={p.status} label={statusLabel(p.status)} />
+              <div className="pipe-row-meta mono">
+                {t('step')} {p.current_step + 1}/{p.steps.length}
+                {p.pvc_name ? (
+                  <>
+                    <br />
+                    {t('pipelinePvc')} {p.pvc_name}
+                  </>
+                ) : null}
+                {p.error_message ? (
+                  <div className="text-[var(--danger)]">{formatApiMessage(p.error_message, t)}</div>
+                ) : null}
+              </div>
+              <div className="pipe-row-runs">
+                {p.run_ids.length === 0 ? (
+                  <span>{t('pipeNoRuns')}</span>
+                ) : (
+                  p.run_ids.map((rid, i) => (
+                    <Link key={rid} className="mono" to={`/runs/${rid}`}>
+                      s{i + 1} {rid.slice(0, 8)}
+                    </Link>
+                  ))
+                )}
+              </div>
+              <div className="pipe-row-actions">
+                {(p.status === 'pending' || p.status === 'running') && (
+                  <button
+                    type="button"
+                    className="btn btn-warn btn-sm"
+                    onClick={async () => {
+                      await api.cancelPipeline(p.id)
+                      await refresh()
+                    }}
+                  >
+                    {t('pipeStop')}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

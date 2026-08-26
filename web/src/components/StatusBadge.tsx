@@ -21,5 +21,10 @@ export default function StatusBadge({
   label?: string
 }) {
   const tone = statusTone(status)
-  return <span className={`badge badge-dot badge-${tone}`}>{label || status}</span>
+  const text = label || status
+  return (
+    <span className={`badge badge-dot badge-${tone}`} data-status={status} title={text}>
+      {text}
+    </span>
+  )
 }

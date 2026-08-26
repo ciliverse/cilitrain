@@ -1,0 +1,448 @@
+/*
+  CiliTrain chrome + remaining forms.
+  Loaded from App.tsx; overrides index.css via higher specificity.
+  Motion: transform/opacity only, 150-250ms. No transition:all.
+*/
+
+.app-header .cluster-chip {
+  max-width: 16rem;
+  padding: 0.18rem 0.55rem 0.18rem 0.4rem;
+  border-radius: 999px;
+  gap: 0.42rem;
+  background: var(--bg-elevated);
+  color: var(--text);
+  transition:
+    border-color var(--dur-hover) ease,
+    background-color var(--dur-hover) ease,
+    opacity var(--dur-hover) ease;
+}
+
+.app-header .cluster-chip.is-live {
+  border-color: color-mix(in oklch, var(--success) 28%, var(--line));
+  background: color-mix(in oklch, var(--success-muted) 40%, var(--bg-elevated));
+}
+
+.app-header .cluster-chip.is-offline {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.app-header .cluster-chip-name {
+  min-width: 0;
+}
+
+.app-header .cluster-chip-live {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--success);
+}
+
+.app-header .header-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+  margin-left: 0.15rem;
+}
+
+.app-header .header-user {
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header .header-logout {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.22rem 0.4rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    color var(--dur-hover) ease,
+    background-color var(--dur-hover) ease;
+}
+
+.app-header .header-logout:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.app-header .header-logout:active {
+  transform: scale(0.97);
+}
+
+/* —— New run spec form —— */
+.spec-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.spec-form-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem 2rem;
+}
+
+.spec-col {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  min-inline-size: 0;
+}
+
+.spec-col-title {
+  float: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.spec-wide {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.spec-tmpl-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.spec-advanced {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-lg);
+  padding: 0 0.9rem 0.85rem;
+  background: color-mix(in oklch, var(--bg-elevated) 70%, transparent);
+}
+
+.spec-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.7rem 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--muted);
+  touch-action: manipulation;
+}
+
+.spec-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.spec-advanced[open] > summary {
+  color: var(--text);
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.spec-form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin: 0.15rem -1.25rem -1.1rem;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid var(--line);
+  background: color-mix(in oklch, var(--bg-surface) 88%, transparent);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.spec-form-foot .hint {
+  margin-right: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* —— Pipelines —— */
+.pipe-create {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.4fr) minmax(8rem, 1fr) auto;
+  gap: 0.75rem 0.85rem;
+  align-items: end;
+}
+
+.pipe-create-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.pipe-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.pipe-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.4fr) 6.75rem minmax(7rem, 1fr) minmax(8rem, 1.2fr) auto;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  padding: 0.8rem 1.1rem;
+  border-bottom: 1px solid var(--line-subtle);
+  transition: background-color var(--dur-hover) ease;
+}
+
+.pipe-row-head {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  background: var(--bg);
+}
+
+.pipe-row:last-child {
+  border-bottom: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pipe-row:hover {
+    background: var(--bg-hover);
+  }
+
+  .pipe-row-head:hover {
+    background: var(--bg);
+  }
+}
+
+.pipe-row-name {
+  font-weight: 600;
+  min-width: 0;
+}
+
+.pipe-row-id {
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  color: var(--muted-2);
+}
+
+.pipe-row-meta,
+.pipe-row-runs {
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.pipe-row-runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+}
+
+.pipe-row-runs a {
+  color: var(--accent-text);
+}
+
+.pipe-row-runs a:hover {
+  text-decoration: underline;
+}
+
+.pipe-row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* —— Compare —— */
+.pick-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.pick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  min-height: 1.7rem;
+  align-items: center;
+}
+
+.pick-placeholder {
+  font-size: 0.75rem;
+  color: var(--muted-2);
+}
+
+.pick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 14rem;
+  padding: 0.15rem 0.25rem 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  font-size: 0.75rem;
+  animation: shell-chip-in 180ms var(--ease-enter) both;
+}
+
+.pick-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick-chip-x {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  touch-action: manipulation;
+  transition:
+    color var(--dur-hover) ease,
+    background-color var(--dur-hover) ease;
+}
+
+.pick-chip-x:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.pick-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.pick-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 0.65rem 0.75rem;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--line-subtle);
+  cursor: pointer;
+  transition: background-color var(--dur-hover) ease;
+}
+
+.pick-item:last-child {
+  border-bottom: 0;
+}
+
+.pick-item.is-on {
+  background: var(--accent-dim);
+}
+
+.pick-item.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pick-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .pick-item.is-on:hover {
+    background: var(--accent-dim);
+  }
+}
+
+.pick-item input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.cmp-num {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes shell-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .spec-form-cols,
+  .pipe-create,
+  .pipe-row,
+  .pick-item {
+    grid-template-columns: 1fr;
+  }
+
+  .pipe-row-head {
+    display: none;
+  }
+
+  .pipe-row-actions,
+  .spec-form-foot {
+    justify-content: stretch;
+  }
+
+  .spec-form-foot .btn {
+    width: 100%;
+  }
+
+  .pipe-create .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pick-chip,
+  .spec-form-foot,
+  .pipe-row,
+  .cluster-chip .dot:not(.off) {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+
+  .app-header .header-logout:active {
+    transform: none;
+  }
+}

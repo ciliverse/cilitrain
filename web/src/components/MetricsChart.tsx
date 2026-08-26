@@ -3,7 +3,13 @@ import { parseApiDate, useI18n } from '../i18n'
 
 type Point = Record<string, number>
 
-const COLORS = ['#3ecf8e', '#e6b84d', '#6cb6ff', '#e36d6d', '#c79bff']
+const COLORS = [
+  'var(--accent)',
+  'var(--warn)',
+  'var(--info)',
+  'var(--danger)',
+  'var(--success)',
+]
 
 function formatWallClock(ts: number): string {
   // Unix seconds → local wall clock (MLflow/TensorBoard "Wall" style in tooltip)
@@ -127,11 +133,11 @@ export default function MetricsChart({
   const { w, h, padL, padT, padB, plotW, plotH, xTicks, yTicks, lines, xs, px } = model
 
   return (
-    <div className="space-y-2">
+    <div className="runs-chart space-y-2">
       <div className="relative w-full max-w-3xl">
         <svg
           viewBox={`0 0 ${w} ${h}`}
-          className="w-full rounded border border-[var(--line)] bg-black/30"
+          className="w-full rounded border border-[var(--line)] bg-[var(--code-bg)]"
           onMouseLeave={() => setHover(null)}
         >
           {/* grid + axes */}
@@ -144,7 +150,7 @@ export default function MetricsChart({
                   x2={padL + plotW}
                   y1={y}
                   y2={y}
-                  stroke="rgba(138,163,152,0.18)"
+                  stroke="var(--line)"
                   strokeDasharray="3 3"
                 />
                 <text
@@ -168,7 +174,7 @@ export default function MetricsChart({
                   x2={x}
                   y1={padT}
                   y2={padT + plotH}
-                  stroke="rgba(138,163,152,0.1)"
+                  stroke="var(--line-subtle)"
                 />
                 <text
                   x={x}
@@ -189,14 +195,14 @@ export default function MetricsChart({
             y1={padT}
             x2={padL}
             y2={padT + plotH}
-            stroke="rgba(138,163,152,0.45)"
+            stroke="var(--line-strong)"
           />
           <line
             x1={padL}
             y1={padT + plotH}
             x2={padL + plotW}
             y2={padT + plotH}
-            stroke="rgba(138,163,152,0.45)"
+            stroke="var(--line-strong)"
           />
           <text
             x={padL + plotW / 2}
@@ -240,7 +246,7 @@ export default function MetricsChart({
               x2={px(xs[hover])}
               y1={padT}
               y2={padT + plotH}
-              stroke="rgba(62,207,142,0.45)"
+              stroke="color-mix(in srgb, var(--accent) 48%, transparent)"
               strokeDasharray="4 3"
             />
           )}
@@ -272,7 +278,7 @@ export default function MetricsChart({
             ? t('timeRelWall').replace('{rel}', String(rel)).replace('{wall}', wall)
             : `${xLabel} ${rel}`
           return (
-            <div className="pointer-events-none absolute top-3 right-3 rounded border border-[var(--line)] bg-[var(--panel)]/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
+            <div className="runs-chart-tip pointer-events-none absolute top-3 right-3 rounded border border-[var(--line)] bg-[var(--panel)]/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
               <div className="mb-1 mono text-[var(--muted)]">{xHeader}</div>
               {keys.map((k, ki) => (
                 <div key={k} className="flex items-center gap-2">

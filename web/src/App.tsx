@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { api, getToken, setToken, type AuthUser } from './api'
 import { I18nProvider, useI18n } from './i18n'
 import { ThemeProvider, useTheme } from './useTheme'
@@ -8,9 +8,13 @@ import RunsPage from './pages/RunsPage'
 import NewRunPage from './pages/NewRunPage'
 import RunDetailPage from './pages/RunDetailPage'
 import SettingsPage from './pages/SettingsPage'
+import ClustersPage from './pages/ClustersPage'
 import ComparePage from './pages/ComparePage'
 import PipelinesPage from './pages/PipelinesPage'
 import LoginPage from './pages/LoginPage'
+import NavTabs from './components/NavTabs'
+import PageEnter from './components/PageEnter'
+import './styles/shell.css'
 
 function ThemeIcon({ theme }: { theme: Theme }) {
   if (theme === 'light') {
@@ -57,76 +61,43 @@ function Shell({
 }) {
   const { t, lang, setLang } = useI18n()
   const { theme, toggle: toggleTheme } = useTheme()
-  const [cilikubeConsole, setCilikubeConsole] = useState<string | null>(null)
   const [clusterLabel, setClusterLabel] = useState<string | null>(null)
 
   const themeLabel =
     theme === 'light' ? t('themeLight') : theme === 'dark' ? t('themeDark') : t('themeSystem')
 
   useEffect(() => {
-    Promise.all([api.settings(), api.clusters()])
-      .then(([s, cs]) => {
-        const base = (s.cilikube_base_url || '').trim().replace(/\/$/, '')
-        setCilikubeConsole(base ? `${base}/overview` : null)
-        setClusterLabel(cs[0]?.name || null)
-      })
-      .catch(() => {
-        setCilikubeConsole(null)
-        setClusterLabel(null)
-      })
+    api
+      .clusters()
+      .then((cs) => setClusterLabel(cs[0]?.name || null))
+      .catch(() => setClusterLabel(null))
   }, [])
-
-  const tabClass = ({ isActive }: { isActive: boolean }) => `tab${isActive ? ' active' : ''}`
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <div className="app-header-left">
           <Wordmark />
-          <div className="cluster-chip" title={clusterLabel || t('needCluster')}>
+          <Link
+            to="/clusters"
+            className={`cluster-chip${clusterLabel ? ' is-live' : ' is-offline'}`}
+            title={clusterLabel || t('needCluster')}
+            aria-label={
+              clusterLabel
+                ? `${clusterLabel}, ${t('connected')}`
+                : t('chipNoCluster')
+            }
+          >
             <span className={`dot${clusterLabel ? '' : ' off'}`} />
-            <span className="truncate mono">
-              {clusterLabel || t('noClusters')}
+            <span className="cluster-chip-name truncate mono">
+              {clusterLabel || t('chipNoCluster')}
             </span>
-            {clusterLabel ? (
-              <span className="text-[var(--success)] font-semibold">{t('connected')}</span>
-            ) : null}
-          </div>
+            {clusterLabel ? <span className="cluster-chip-live">{t('connected')}</span> : null}
+          </Link>
         </div>
 
         <nav className="app-header-center" aria-label="main">
-          <div className="tabs">
-            <NavLink to="/" end className={tabClass}>
-              {t('navRuns')}
-            </NavLink>
-            <NavLink to="/new" className={tabClass}>
-              {t('navNew')}
-            </NavLink>
-            <NavLink to="/pipelines" className={tabClass}>
-              {t('navPipelines')}
-            </NavLink>
-            <NavLink to="/compare" className={tabClass}>
-              {t('navCompare')}
-            </NavLink>
-            <NavLink to="/settings" className={tabClass}>
-              {t('navSettings')}
-            </NavLink>
-            {cilikubeConsole ? (
-              <a
-                href={cilikubeConsole}
-                target="_blank"
-                rel="noreferrer"
-                className="tab tab-ext"
-                title={t('cilikubeNavHint')}
-              >
-                CiliKube
-              </a>
-            ) : (
-              <Link to="/settings#cilikube" className="tab" title={t('cilikubeNotConfigured')}>
-                CiliKube
-              </Link>
-            )}
-          </div>
+          <NavTabs />
         </nav>
 
         <div className="app-header-right">
@@ -148,19 +119,20 @@ function Shell({
             </button>
           </div>
           {user && (
-            <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-              <span className="mono">
+            <div className="header-account">
+              <span className="header-user mono" title={`${user.username} · ${user.role}`}>
                 {user.username}
-                <span className="text-[var(--accent-text)]"> · {user.role}</span>
               </span>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={onLogout}>
+              <button type="button" className="header-logout" onClick={onLogout}>
                 {t('logout')}
               </button>
             </div>
           )}
         </div>
       </header>
-      <main className="app-content">{children}</main>
+      <main className="app-content">
+        <PageEnter>{children}</PageEnter>
+      </main>
     </div>
   )
 }
@@ -206,6 +178,11 @@ function AppRoutes() {
     }
   }, [])
 
+  function onLoggedIn(next: AuthUser) {
+    setUser(next)
+    nav('/', { replace: true })
+  }
+
   async function onLogout() {
     try {
       await api.logout()
@@ -219,7 +196,7 @@ function AppRoutes() {
 
   if (!ready) {
     return (
-      <div className="login-screen">
+      <div className="boot-screen">
         <p className="text-sm text-[var(--muted)]">Loading...</p>
       </div>
     )
@@ -233,7 +210,7 @@ function AppRoutes() {
           authRequired && user ? (
             <Navigate to="/" replace />
           ) : authRequired ? (
-            <LoginPage />
+            <LoginPage onLoggedIn={onLoggedIn} />
           ) : (
             <Navigate to="/" replace />
           )
@@ -252,6 +229,7 @@ function AppRoutes() {
                 <Route path="/runs/:id" element={<RunDetailPage />} />
                 <Route path="/compare" element={<ComparePage />} />
                 <Route path="/pipelines" element={<PipelinesPage />} />
+                <Route path="/clusters" element={<ClustersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </Shell>

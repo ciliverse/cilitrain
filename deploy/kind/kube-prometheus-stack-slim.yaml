@@ -1,12 +1,8 @@
-# Moved: use local chart + overlay under helm-charts.
-#   Chart:  /root/helm-charts/kube-prometheus-stack  (86.1.1)
-#   Values: /root/helm-charts/kube-prometheus-stack/values-kind.yaml
-#   Mirror: /root/helm-charts/kube-prometheus-stack/values-kind-mirror.yaml
-#   Docs:   /root/helm-charts/kube-prometheus-stack/DEPLOY-KIND.md
-#
-# helm upgrade --install kps /root/helm-charts/kube-prometheus-stack \
-#   -n monitoring --create-namespace \
-#   -f /root/helm-charts/kube-prometheus-stack/values-kind.yaml
+# Kind-sized overlay for the upstream kube-prometheus-stack chart (86.x).
+# Install from the repository root:
+#   helm upgrade --install kps prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace \
+#     -f deploy/kind/kube-prometheus-stack-slim.yaml
 
 alertmanager:
   enabled: false

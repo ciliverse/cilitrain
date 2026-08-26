@@ -1,0 +1,316 @@
+/* Runs list + detail: Linear/Stripe density on steel-cyan tokens. */
+
+.runs-page,
+.runs-detail {
+  --runs-dur: 180ms;
+  --runs-ease: var(--ease-enter, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+.runs-page .page-head {
+  margin-bottom: 1.15rem;
+}
+
+.runs-page .stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.runs-page .stat-chip {
+  flex: 1 1 6.5rem;
+  max-width: 10.5rem;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding: 0.42rem 0.7rem;
+}
+
+.runs-page .stat-chip .n {
+  font-size: 1.05rem;
+}
+
+.runs-page .stat-chip .k {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.runs-page .stat-chip .n {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.runs-page .stat-chip[data-tone="live"][data-hot="true"] .n {
+  color: var(--warn);
+}
+
+.runs-page .stat-chip[data-tone="ok"][data-hot="true"] .n {
+  color: var(--success);
+}
+
+.runs-page .stat-chip[data-tone="fail"][data-hot="true"] .n {
+  color: var(--danger);
+}
+
+.runs-page .stat-chip[aria-pressed="true"] {
+  background-color: var(--accent-dim);
+}
+
+.runs-page .toolbar {
+  margin-bottom: 0.75rem;
+}
+
+.runs-page .data-table-wrap {
+  max-height: calc(100vh - 16.5rem);
+}
+
+.runs-page .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+}
+
+.runs-page .data-table td {
+  padding: 0.62rem 1rem;
+  vertical-align: middle;
+}
+
+.runs-page .data-table tbody tr.data-row {
+  transition: background-color var(--runs-dur) ease;
+}
+
+.runs-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  white-space: nowrap;
+}
+
+.runs-act {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  padding: 0.18rem 0.42rem;
+  margin: 0;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  font-weight: 550;
+  line-height: 1.3;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition:
+    background-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.runs-act:hover:not(:disabled) {
+  color: var(--text);
+  background-color: var(--bg-hover);
+}
+
+.runs-act:active:not(:disabled) {
+  opacity: 0.72;
+}
+
+.runs-act:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.runs-act-primary {
+  color: var(--accent-text);
+}
+
+.runs-act-primary:hover:not(:disabled) {
+  color: var(--accent-text);
+  background-color: var(--accent-dim);
+}
+
+.runs-act-warn {
+  color: var(--warn);
+}
+
+.runs-act-warn:hover:not(:disabled) {
+  color: var(--warn);
+  background-color: var(--warn-muted);
+}
+
+.runs-act-danger {
+  color: var(--danger);
+}
+
+.runs-act-danger:hover:not(:disabled) {
+  color: var(--danger);
+  background-color: var(--danger-muted);
+}
+
+.runs-empty-desc {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted-2);
+  max-width: 32rem;
+}
+
+.runs-skel {
+  display: block;
+  height: 0.7rem;
+  border-radius: var(--radius);
+  background-color: var(--bg-elevated);
+  animation: runs-skel-pulse 1.15s ease-in-out infinite;
+}
+
+.runs-skel-name {
+  width: 11.5rem;
+}
+
+.runs-skel-sm {
+  width: 4.25rem;
+}
+
+.runs-skel-md {
+  width: 7.5rem;
+}
+
+.runs-skel-lg {
+  width: 8.75rem;
+}
+
+@keyframes runs-skel-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.runs-crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.runs-crumb a {
+  color: var(--muted);
+  transition: opacity 160ms ease;
+}
+
+.runs-crumb a:hover {
+  color: var(--accent-text);
+}
+
+.runs-crumb-sep {
+  color: var(--muted-2);
+  font-size: 0.75rem;
+}
+
+.runs-crumb-now {
+  color: var(--text);
+  font-weight: 550;
+}
+
+.runs-detail .page-head {
+  margin-bottom: 1rem;
+  padding-bottom: 0.85rem;
+}
+
+.runs-detail .page-title {
+  margin: 0;
+}
+
+.runs-job {
+  margin: 0.3rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-2);
+}
+
+.runs-spec {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+}
+
+.runs-spec > div {
+  min-width: 0;
+}
+
+.runs-spec dt {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.runs-spec dd {
+  margin: 0.28rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.runs-copy.is-copied {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  background-color: var(--success-muted);
+}
+
+.runs-copy {
+  min-width: 5.75rem;
+  transition:
+    background-color 180ms ease,
+    opacity 180ms ease,
+    transform 180ms var(--runs-ease);
+}
+
+.runs-chart {
+  width: 100%;
+}
+
+.runs-chart-tip {
+  transition: opacity 150ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .runs-page .stat-chip:hover {
+    background-color: var(--bg-hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runs-page *,
+  .runs-page *::before,
+  .runs-page *::after,
+  .runs-detail *,
+  .runs-detail *::before,
+  .runs-detail *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .runs-skel {
+    opacity: 0.7;
+  }
+
+  .runs-act:active:not(:disabled) {
+    opacity: 1;
+  }
+}

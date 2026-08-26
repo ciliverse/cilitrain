@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { api, setToken } from '../api'
+import { api, setToken, type AuthUser } from '../api'
 import { useI18n } from '../i18n'
 import { useTheme } from '../useTheme'
 import type { Theme } from '../theme'
+import '../styles/login.css'
 
 function ThemeIcon({ theme }: { theme: Theme }) {
   if (theme === 'light') {
@@ -29,16 +29,22 @@ function ThemeIcon({ theme }: { theme: Theme }) {
   )
 }
 
-export default function LoginPage() {
-  const { t } = useI18n()
+export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
+  const { t, lang, setLang } = useI18n()
   const { theme, toggle } = useTheme()
-  const nav = useNavigate()
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
+  const [shake, setShake] = useState(0)
   const [busy, setBusy] = useState(false)
   const themeLabel =
     theme === 'light' ? t('themeLight') : theme === 'dark' ? t('themeDark') : t('themeSystem')
+
+  const ops = [
+    { title: t('loginOpsSubmit'), hint: t('loginOpsSubmitHint') },
+    { title: t('loginOpsWatch'), hint: t('loginOpsWatchHint') },
+    { title: t('loginOpsCompare'), hint: t('loginOpsCompareHint') },
+  ] as const
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -47,9 +53,10 @@ export default function LoginPage() {
     try {
       const out = await api.login(username, password)
       setToken(out.access_token)
-      nav('/', { replace: true })
+      onLoggedIn(out.user)
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex))
+      setShake((n) => n + 1)
     } finally {
       setBusy(false)
     }
@@ -57,48 +64,94 @@ export default function LoginPage() {
 
   return (
     <div className="login-screen">
-      <div className="login-card relative">
-        <button
-          type="button"
-          className="btn-icon absolute top-4 right-4"
-          onClick={toggle}
-          title={`${t('themeToggle')}: ${themeLabel}`}
-          aria-label={`${t('themeToggle')}: ${themeLabel}`}
-        >
-          <ThemeIcon theme={theme} />
-        </button>
-        <div className="wordmark" aria-label="CiliTrain">
-          <span className="wordmark-prefix">ciliverse</span>
-          <span className="wordmark-name">train</span>
+      <aside className="login-rail">
+        <div className="login-rail-brand">
+          <p className="login-kicker">{t('navSectionTrain')}</p>
+          <div className="wordmark login-wordmark" aria-label="CiliTrain">
+            <span className="wordmark-prefix">ciliverse</span>
+            <span className="wordmark-name">train</span>
+          </div>
+          <p className="login-lead">{t('tagline')}</p>
         </div>
-        <p className="page-desc mt-4">{t('loginDesc')}</p>
-        <form onSubmit={onSubmit} className="mt-6 space-y-3">
-          <label className="label">
-            {t('username')}
-            <input
-              className="field"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label className="label">
-            {t('password')}
-            <input
-              type="password"
-              className="field"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
-          <button type="submit" disabled={busy} className="btn btn-primary w-full">
-            {busy ? t('loggingIn') : t('login')}
-          </button>
-        </form>
+        <ol className="login-ops" aria-label={t('loginOpsAria')}>
+          {ops.map((step, i) => (
+            <li key={step.title} className="login-ops-item">
+              <span className="login-ops-idx" aria-hidden>
+                {i + 1}
+              </span>
+              <div>
+                <p className="login-ops-title">{step.title}</p>
+                <p className="login-ops-hint">{step.hint}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </aside>
+
+      <div className="login-form-col">
+        <div key={shake} className={`login-card${err ? ' shake' : ''}`}>
+          <div className="login-toolbar">
+            <div className="seg" role="group" aria-label="language">
+              <button type="button" className={lang === 'zh' ? 'on' : ''} onClick={() => setLang('zh')}>
+                中文
+              </button>
+              <button type="button" className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>
+                EN
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn-icon"
+              onClick={toggle}
+              title={`${t('themeToggle')}: ${themeLabel}`}
+              aria-label={`${t('themeToggle')}: ${themeLabel}`}
+            >
+              <ThemeIcon theme={theme} />
+            </button>
+          </div>
+          <h1 className="login-form-title">{t('login')}</h1>
+          <p className="page-desc">{t('loginDesc')}</p>
+          <form onSubmit={onSubmit} className="login-form">
+            <label className="label" htmlFor="login-username">
+              {t('username')}
+              <input
+                id="login-username"
+                className="field"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                required
+              />
+            </label>
+            <div>
+              <label className="label" htmlFor="login-password">
+                {t('password')}
+                <input
+                  id="login-password"
+                  type="password"
+                  className={`field login-field-password${err ? ' is-error' : ''}`}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  aria-invalid={err ? true : undefined}
+                  aria-describedby={err ? 'login-error' : undefined}
+                  required
+                />
+              </label>
+              {err ? (
+                <p id="login-error" className="flash flash-err login-field-err" role="alert">
+                  {err}
+                </p>
+              ) : null}
+            </div>
+            <button type="submit" disabled={busy} className="btn btn-primary w-full">
+              {busy ? t('loggingIn') : t('login')}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   )

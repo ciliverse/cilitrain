@@ -1,30 +1,25 @@
 # Kind cluster monitoring for CiliTrain
 
+Live resource cards need cluster metrics. Install these on the Kind cluster, then point the API at Prometheus.
+
 ## metrics-server
 
-Instant Pod CPU/memory via the Metrics API (`kubectl top`). Required for live cards.
+Instant Pod CPU and memory via the Metrics API (`kubectl top`). Required for the live cards.
 
 ## kube-prometheus-stack
 
-Chart and values live in the local helm-charts tree (not pulled from the internet at deploy time):
-
-| Path | Purpose |
-|------|---------|
-| `/root/helm-charts/kube-prometheus-stack` | Chart `86.1.1` (unpacked) |
-| `/root/helm-charts/archives/kube-prometheus-stack-86.1.1.tgz` | Archive |
-| `/root/helm-charts/kube-prometheus-stack/values-kind.yaml` | Kind slim overlay |
-| `/root/helm-charts/kube-prometheus-stack/values-kind-mirror.yaml` | DaoCloud image mirrors |
-| `/root/helm-charts/kube-prometheus-stack/DEPLOY-KIND.md` | Deploy notes |
+`kube-prometheus-stack-slim.yaml` in this directory is a small overlay: short retention, modest requests, and no Alertmanager or Grafana. It targets the upstream `kube-prometheus-stack` chart (86.x).
 
 ```bash
-helm upgrade --install kps /root/helm-charts/kube-prometheus-stack \
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm upgrade --install kps prometheus-community/kube-prometheus-stack \
   -n monitoring --create-namespace \
-  -f /root/helm-charts/kube-prometheus-stack/values-kind.yaml
+  -f deploy/kind/kube-prometheus-stack-slim.yaml
 ```
 
-If `quay.io` / `registry.k8s.io` pulls fail, add `-f .../values-kind-mirror.yaml`.
+Run that from the repository root. If image pulls from `quay.io` or `registry.k8s.io` fail, add your own values file that points those images at a mirror you control.
 
-Expose Prometheus to the CiliTrain API host:
+Expose Prometheus to the host running the CiliTrain API:
 
 ```bash
 kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090:9090

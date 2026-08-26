@@ -41,7 +41,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    applyTheme(document.documentElement, theme, prefersDark)
+    const root = document.documentElement
+    root.setAttribute('data-theme-switching', '')
+    applyTheme(root, theme, prefersDark)
+    const id = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => root.removeAttribute('data-theme-switching'))
+    })
+    return () => window.cancelAnimationFrame(id)
   }, [theme, prefersDark])
 
   const toggle = useCallback(() => {

@@ -1,0 +1,215 @@
+/* Login-only overrides. Tokens and 800px collapse live in index.css. */
+
+.login-screen .login-rail {
+  justify-content: center;
+  align-items: center;
+  gap: 2.75rem;
+  text-align: center;
+}
+
+.login-screen .login-rail-grid {
+  display: none;
+}
+
+.login-rail-brand,
+.login-ops {
+  position: relative;
+  margin-inline: auto;
+}
+
+.login-rail-brand {
+  width: min(22rem, 100%);
+}
+
+.login-ops {
+  width: max-content;
+  max-width: min(22rem, 100%);
+}
+
+.login-screen .login-wordmark {
+  justify-content: center;
+}
+
+.login-ops {
+  margin: 0;
+  padding: 0.9rem 0 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.login-ops-item {
+  display: grid;
+  grid-template-columns: 1.15rem 1fr;
+  column-gap: 0.75rem;
+  padding: 0.7rem 0;
+  position: relative;
+  text-align: left;
+}
+
+.login-ops-item + .login-ops-item {
+  border-top: 1px solid var(--line);
+}
+
+.login-ops-idx {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--accent-text);
+  padding-top: 0.12rem;
+}
+
+.login-ops-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.login-ops-hint {
+  margin: 0.22rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.login-screen .login-form-col {
+  padding: 2.5rem 2rem;
+}
+
+.login-screen .login-card {
+  max-width: 20.5rem;
+}
+
+.login-screen .login-toolbar {
+  margin-bottom: 1.15rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.login-screen .login-form-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.login-screen .page-desc {
+  margin-top: 0.3rem;
+  max-width: none;
+  line-height: 1.45;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1.15rem;
+}
+
+.login-form .label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.login-form .label .field {
+  margin-top: 0;
+}
+
+.login-field-password {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.875rem;
+  letter-spacing: 0.16em;
+  padding-top: 0.62rem;
+  padding-bottom: 0.62rem;
+  background: var(--code-bg);
+  border-color: var(--line-strong);
+}
+
+.login-screen .login-field-err.flash.flash-err {
+  margin: 0;
+  padding: 0.28rem 0 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--danger);
+}
+
+.login-form .btn-primary {
+  margin-top: 0.15rem;
+  padding-top: 0.62rem;
+  padding-bottom: 0.62rem;
+}
+
+.login-form .btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 0ms;
+}
+
+@media (max-width: 800px) {
+  .login-screen {
+    grid-template-rows: auto 1fr;
+  }
+
+  .login-screen .login-rail {
+    min-height: 0;
+    gap: 0.85rem;
+    justify-content: flex-start;
+    align-items: center;
+  }
+
+  .login-rail-brand,
+  .login-ops {
+    max-width: none;
+    width: 100%;
+  }
+
+  .login-ops {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem 0.75rem;
+    margin-top: 0;
+    padding-top: 0.75rem;
+  }
+
+  .login-ops-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0;
+    border-top: 0;
+    text-align: center;
+  }
+
+  .login-ops-item + .login-ops-item {
+    border-top: 0;
+  }
+
+  .login-ops-hint {
+    display: none;
+  }
+
+  .login-screen .login-form-col {
+    padding: 1.35rem 1.5rem 2rem;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .login-screen .login-card {
+    max-width: 24rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-ops,
+  .login-field-err {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+}

@@ -1,0 +1,337 @@
+/* Ops surfaces: clusters, settings, confirm. Uses index.css tokens. */
+
+.ops-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.ops-page > .page-head {
+  margin-bottom: 0;
+}
+
+.ops-recommend.panel-pad {
+  padding: 0.85rem 1rem;
+}
+
+.ops-recommend-kicker {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.ops-recommend-title {
+  margin: 0.2rem 0 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+
+.ops-recommend-desc {
+  margin: 0.28rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.ops-recommend-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.ops-recommend-form .field {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+  margin-top: 0;
+}
+
+.ops-recommend-form .btn,
+.ops-recommend-form a.btn {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+}
+
+.ops-section-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.ops-section-desc {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 54ch;
+}
+
+.ops-row-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  border: none;
+}
+
+.ops-row-list .ops-row {
+  width: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.28rem 0.55rem;
+  justify-content: flex-start;
+}
+
+.ops-cluster-row,
+.ops-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--line-subtle);
+  transition: background-color 160ms ease;
+}
+
+.ops-cluster-row:last-child,
+.ops-row:last-child {
+  border-bottom: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ops-cluster-row:hover,
+  .ops-row:hover {
+    background: var(--bg-hover);
+  }
+}
+
+.ops-cluster-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  min-width: 0;
+}
+
+.ops-cluster-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ops-cluster-ctx {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.btn.ops-btn-ghost-danger {
+  color: var(--danger);
+  border-color: transparent;
+  background: transparent;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform var(--dur-press) var(--ease-enter);
+}
+
+.btn.ops-btn-ghost-danger:hover:not(:disabled) {
+  background: var(--danger-muted);
+  color: var(--danger);
+  border-color: color-mix(in oklch, var(--danger) 30%, transparent);
+}
+
+.ops-empty.empty-state {
+  margin-top: 0.7rem;
+  gap: 0.5rem;
+  padding: 1.25rem 1.1rem;
+}
+
+.ops-empty .empty-title {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 550;
+}
+
+.ops-empty-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 42ch;
+}
+
+.ops-add {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.ops-add-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ops-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem 0.7rem;
+}
+
+.ops-inline-form .ops-grow {
+  flex: 1 1 10rem;
+  min-width: 8.5rem;
+}
+
+.ops-inline-form .field {
+  width: 100%;
+}
+
+.ops-inline-form .btn {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+}
+
+.ops-kube-field {
+  flex: 1 1 100%;
+  min-width: 100%;
+}
+
+.ops-kube-drop {
+  margin-top: 0.3rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--field-bg);
+  overflow: hidden;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.ops-kube-drop.is-over {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.ops-kube-drop .field {
+  border: none;
+  background: transparent;
+  min-height: 6rem;
+  resize: vertical;
+  margin-top: 0;
+}
+
+.ops-kube-drop .field:hover,
+.ops-kube-drop .field:focus {
+  box-shadow: none;
+}
+
+.ops-kube-drop:focus-within {
+  border-style: solid;
+  border-color: var(--focus);
+}
+
+.ops-kube-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ops-user-name {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.ops-subhead {
+  margin: 1rem 0 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ops-confirm.modal-dialog {
+  max-width: 24.5rem;
+}
+
+.ops-confirm-head {
+  padding: 0.8rem 1rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.ops-confirm-tone {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.35rem;
+  border-radius: var(--radius);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.ops-confirm-title {
+  margin: 0.4rem 0 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.ops-confirm-desc {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.ops-confirm-match {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.ops-confirm-match .label {
+  font-size: 0.8125rem;
+}
+
+.ops-confirm-match .field {
+  margin-top: 0.4rem;
+}
+
+.ops-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem 0.7rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-cluster-row,
+  .ops-row,
+  .ops-kube-drop,
+  .btn.ops-btn-ghost-danger {
+    transition: none;
+  }
+}
