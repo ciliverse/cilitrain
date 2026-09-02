@@ -39,6 +39,13 @@ class ClusterOut(BaseModel):
     created_at: UtcDateTime
 
 
+class ClusterProbeOut(BaseModel):
+    cluster_id: str
+    name: str
+    reachable: bool
+    message: Optional[str] = None
+
+
 class TemplateOut(BaseModel):
     id: str
     name: str
@@ -123,6 +130,11 @@ class SettingsUpdate(BaseModel):
 class LogsOut(BaseModel):
     pod_name: Optional[str] = None
     logs: str
+
+
+class CleanupOut(BaseModel):
+    status: str = "ok"
+    cleaned: bool = False
 
 
 class PipelineStepIn(BaseModel):

@@ -19,7 +19,11 @@ function isMissingCluster(msg: string) {
   return /cluster not found/i.test(msg)
 }
 
-type Dialog = 'cancel' | 'delete' | 'rerun' | null
+type Dialog = 'cancel' | 'cleanup' | 'delete' | 'rerun' | null
+
+function canCleanup(run: Run) {
+  return (run.status === 'failed' || run.status === 'timeout') && Boolean(run.job_name)
+}
 
 export default function RunDetailPage() {
   const { id } = useParams()
@@ -29,6 +33,7 @@ export default function RunDetailPage() {
   const [logs, setLogs] = useState('')
   const [pod, setPod] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
   const [copied, setCopied] = useState(false)
@@ -96,6 +101,11 @@ export default function RunDetailPage() {
       if (dialog === 'cancel') {
         const r = await api.cancelRun(id)
         setRun(r)
+        setDialog(null)
+        await load()
+      } else if (dialog === 'cleanup') {
+        await api.cleanupRun(id)
+        setMsg(t('cleanupDone'))
         setDialog(null)
         await load()
       } else if (dialog === 'delete') {
@@ -194,6 +204,16 @@ export default function RunDetailPage() {
               >
                 {t('rerun')}
               </button>
+              {canCleanup(run) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setDialog('cleanup')}
+                  className="btn btn-warn"
+                >
+                  {t('cleanupLeftover')}
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy}
@@ -283,6 +303,7 @@ export default function RunDetailPage() {
       </section>
       )}
 
+      {msg && <p className="flash flash-ok">{msg}</p>}
       {err && (
         <p className={`flash ${isMissingCluster(err) ? 'flash-warn' : 'flash-err'}`}>
           {isMissingCluster(err) ? (
@@ -555,6 +576,17 @@ export default function RunDetailPage() {
         title={t('cancelTitle')}
         description={`${t('cancelConfirm')}\n\n${run?.name || ''} · ${run?.job_name || ''}`}
         confirmLabel={busy ? t('cancelling') : t('confirmOk')}
+        cancelLabel={t('confirmCancel')}
+        busy={busy}
+        onClose={() => !busy && setDialog(null)}
+        onConfirm={confirmAction}
+      />
+      <ConfirmDialog
+        open={dialog === 'cleanup'}
+        tone="warn"
+        title={t('cleanupTitle')}
+        description={`${t('cleanupConfirm')}\n\n${run?.name || ''} · ${run?.job_name || ''}`}
+        confirmLabel={busy ? t('cleaningLeftover') : t('confirmCleanup')}
         cancelLabel={t('confirmCancel')}
         busy={busy}
         onClose={() => !busy && setDialog(null)}

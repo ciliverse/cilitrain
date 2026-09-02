@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { api, getToken, setToken, type AuthUser } from './api'
 import { I18nProvider, useI18n } from './i18n'
@@ -62,15 +62,46 @@ function Shell({
   const { t, lang, setLang } = useI18n()
   const { theme, toggle: toggleTheme } = useTheme()
   const [clusterLabel, setClusterLabel] = useState<string | null>(null)
+  const [clusterReachable, setClusterReachable] = useState<boolean | null>(null)
+  const probedId = useRef<string | null>(null)
 
   const themeLabel =
     theme === 'light' ? t('themeLight') : theme === 'dark' ? t('themeDark') : t('themeSystem')
 
   useEffect(() => {
-    api
-      .clusters()
-      .then((cs) => setClusterLabel(cs[0]?.name || null))
-      .catch(() => setClusterLabel(null))
+    let cancelled = false
+    async function tick() {
+      try {
+        const cs = await api.clusters()
+        if (cancelled) return
+        const first = cs[0]
+        if (!first) {
+          probedId.current = null
+          setClusterLabel(null)
+          setClusterReachable(null)
+          return
+        }
+        setClusterLabel(first.name)
+        if (probedId.current !== first.id) {
+          probedId.current = first.id
+          setClusterReachable(null)
+        }
+        const probe = await api.clusterProbe(first.id)
+        if (cancelled) return
+        setClusterReachable(probe.reachable)
+      } catch {
+        if (!cancelled) {
+          setClusterLabel(null)
+          setClusterReachable(null)
+        }
+      }
+    }
+    tick()
+    const id = window.setInterval(tick, 20000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
   }, [])
 
   return (
@@ -80,19 +111,49 @@ function Shell({
           <Wordmark />
           <Link
             to="/clusters"
-            className={`cluster-chip${clusterLabel ? ' is-live' : ' is-offline'}`}
-            title={clusterLabel || t('needCluster')}
+            className={`cluster-chip${
+              clusterLabel && clusterReachable === true
+                ? ' is-live'
+                : ' is-offline'
+            }`}
+            title={
+              clusterLabel
+                ? clusterReachable === true
+                  ? `${clusterLabel}, ${t('connected')}`
+                  : clusterReachable === false
+                    ? `${clusterLabel}, ${t('disconnected')}`
+                    : `${clusterLabel}, ${t('probing')}`
+                : t('needCluster')
+            }
             aria-label={
               clusterLabel
-                ? `${clusterLabel}, ${t('connected')}`
+                ? `${clusterLabel}, ${
+                    clusterReachable === true
+                      ? t('connected')
+                      : clusterReachable === false
+                        ? t('disconnected')
+                        : t('probing')
+                  }`
                 : t('chipNoCluster')
             }
           >
-            <span className={`dot${clusterLabel ? '' : ' off'}`} />
+            <span
+              className={`dot${clusterReachable === true ? '' : ' off'}${
+                clusterReachable === false ? ' down' : ''
+              }`}
+            />
             <span className="cluster-chip-name truncate mono">
               {clusterLabel || t('chipNoCluster')}
             </span>
-            {clusterLabel ? <span className="cluster-chip-live">{t('connected')}</span> : null}
+            {clusterLabel ? (
+              <span className="cluster-chip-live">
+                {clusterReachable === true
+                  ? t('connected')
+                  : clusterReachable === false
+                    ? t('disconnected')
+                    : t('probing')}
+              </span>
+            ) : null}
           </Link>
         </div>
 

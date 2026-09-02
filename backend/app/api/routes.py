@@ -14,8 +14,10 @@ from fastapi.responses import FileResponse
 from app.api.deps import CurrentUser, get_current_user, require_admin
 from app.api.schemas import (
     CiliKubeLinks,
+    CleanupOut,
     ClusterCreate,
     ClusterOut,
+    ClusterProbeOut,
     LogsOut,
     PipelineCreate,
     PipelineOut,
@@ -189,6 +191,35 @@ def list_clusters(
             continue
         out.append(_cluster_out(c, admin=admin))
     return out
+
+
+def _probe_cluster(c: Cluster) -> ClusterProbeOut:
+    try:
+        result = DirectKube(c).probe()
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        return ClusterProbeOut(cluster_id=c.id, name=c.name, reachable=False, message=detail)
+    return ClusterProbeOut(
+        cluster_id=c.id,
+        name=c.name,
+        reachable=bool(result.get("reachable")),
+        message=result.get("message"),
+    )
+
+
+@router.get("/clusters/{cluster_id}/probe", response_model=ClusterProbeOut)
+def probe_cluster(
+    cluster_id: str,
+    cu: Annotated[CurrentUser, Depends(get_current_user)],
+    session: Session = Depends(get_session),
+) -> ClusterProbeOut:
+    c = session.get(Cluster, cluster_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    allowed = visible_cluster_ids(session, cu.user)
+    if allowed is not None and c.id not in allowed:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    return _probe_cluster(c)
 
 
 @router.post("/clusters", response_model=ClusterOut)
@@ -501,6 +532,32 @@ def cancel_run(
     session.refresh(run)
     snap = kube.pod_snapshot(run.namespace, run.id)
     return _run_out(run, _resolve_cilikube(session, cluster), snap=snap)
+
+
+@router.post("/runs/{run_id}/cleanup", response_model=CleanupOut)
+def cleanup_run(
+    run_id: str,
+    cu: Annotated[CurrentUser, Depends(get_current_user)],
+    session: Session = Depends(get_session),
+) -> CleanupOut:
+    """Delete a leftover Job for a failed/timeout run. Does not change the record."""
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    if not can_mutate_run(session, cu.user, run):
+        raise HTTPException(status_code=403, detail="forbidden")
+    if run.status not in ("failed", "timeout"):
+        raise HTTPException(
+            status_code=409,
+            detail="cleanup is only for failed or timeout runs; stop a live run instead",
+        )
+    if not run.job_name:
+        return CleanupOut(status="ok", cleaned=False)
+    cluster = session.get(Cluster, run.cluster_id)
+    if not cluster:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    DirectKube(cluster).delete_job(run.namespace, run.job_name)
+    return CleanupOut(status="ok", cleaned=True)
 
 
 @router.delete("/runs/{run_id}")

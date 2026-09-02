@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
-import { api, type Cluster } from '../api'
+import { api, type Cluster, type ClusterProbe } from '../api'
 import { useI18n } from '../i18n'
 import '../styles/ops.css'
 
 export default function ClustersPage() {
   const { t } = useI18n()
   const [clusters, setClusters] = useState<Cluster[]>([])
+  const [probes, setProbes] = useState<Record<string, ClusterProbe>>({})
   const [cilikube, setCilikube] = useState('')
   const [name, setName] = useState('')
   const [context, setContext] = useState('')
@@ -18,9 +19,26 @@ export default function ClustersPage() {
   const dragDepth = useRef(0)
 
   async function refresh() {
-    setClusters(await api.clusters())
+    const cs = await api.clusters()
+    setClusters(cs)
     const s = await api.settings()
     setCilikube(s.cilikube_base_url || '')
+    const next: Record<string, ClusterProbe> = {}
+    await Promise.all(
+      cs.map(async (c) => {
+        try {
+          next[c.id] = await api.clusterProbe(c.id)
+        } catch (e) {
+          next[c.id] = {
+            cluster_id: c.id,
+            name: c.name,
+            reachable: false,
+            message: e instanceof Error ? e.message : String(e),
+          }
+        }
+      }),
+    )
+    setProbes(next)
   }
 
   useEffect(() => {
@@ -166,6 +184,16 @@ export default function ClustersPage() {
                   >
                     {c.has_kubeconfig_content ? t('kubeSaved') : t('clusterKubeMissing')}
                   </span>
+                  {probes[c.id] ? (
+                    <span
+                      className={`badge ${probes[c.id].reachable ? 'badge-success' : 'badge-warning'}`}
+                      title={probes[c.id].message || undefined}
+                    >
+                      {probes[c.id].reachable ? t('clusterReachable') : t('clusterUnreachable')}
+                    </span>
+                  ) : (
+                    <span className="badge">{t('probing')}</span>
+                  )}
                   {c.context ? <span className="mono ops-cluster-ctx">{c.context}</span> : null}
                 </div>
                 <button

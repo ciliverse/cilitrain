@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +78,32 @@ class DirectKube:
                     Path(tmp_path).unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def probe(self, timeout: float = 2.5) -> dict[str, Any]:
+        """Hit the apiserver /version. Does not mean the cluster is healthy, only reachable."""
+        connect = min(1.2, timeout)
+        self._api_client.configuration.retries = 0
+
+        def _hit() -> Any:
+            return client.VersionApi(self._api_client).get_code(
+                _request_timeout=(connect, timeout),
+            )
+
+        # Do not use `with ThreadPoolExecutor`: shutdown(wait=True) would block
+        # until a hung urllib3 socket dies, even after .result() times out.
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            ver = pool.submit(_hit).result(timeout=timeout + 0.4)
+        except FuturesTimeout:
+            return {"reachable": False, "message": "timed out"}
+        except ApiException as exc:
+            return {"reachable": False, "message": f"{exc.status} {exc.reason}".strip()}
+        except Exception as exc:  # noqa: BLE001
+            return {"reachable": False, "message": str(exc)}
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        git = getattr(ver, "git_version", None)
+        return {"reachable": True, "message": str(git) if git else "ok"}
 
     def create_job(self, body: dict[str, Any]) -> Any:
         ns = body["metadata"]["namespace"]

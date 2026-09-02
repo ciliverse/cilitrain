@@ -21,9 +21,14 @@ function isFailed(status: string) {
 type Filter = 'all' | 'active' | 'done' | 'succeeded' | 'failed'
 type Dialog =
   | { kind: 'cancel'; run: Run }
+  | { kind: 'cleanup'; run: Run }
   | { kind: 'delete'; run: Run }
   | { kind: 'rerun'; run: Run }
   | null
+
+function canCleanup(run: Run) {
+  return isFailed(run.status) && Boolean(run.job_name)
+}
 
 const SKEL_ROWS = [0, 1, 2, 3, 4, 5] as const
 
@@ -33,6 +38,7 @@ export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([])
   const [loaded, setLoaded] = useState(false)
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [q, setQ] = useState('')
@@ -100,6 +106,11 @@ export default function RunsPage() {
     try {
       if (kind === 'cancel') {
         await api.cancelRun(run.id)
+        setDialog(null)
+        await load()
+      } else if (kind === 'cleanup') {
+        await api.cleanupRun(run.id)
+        setMsg(t('cleanupDone'))
         setDialog(null)
         await load()
       } else if (kind === 'delete') {
@@ -188,6 +199,7 @@ export default function RunsPage() {
         />
       </div>
 
+      {msg && <p className="flash flash-ok mb-4">{msg}</p>}
       {err && <p className="flash flash-err mb-4">{err}</p>}
 
       {!loaded ? (
@@ -322,6 +334,16 @@ export default function RunsPage() {
                           >
                             {t('rerun')}
                           </button>
+                          {canCleanup(r) && (
+                            <button
+                              type="button"
+                              disabled={busyId === r.id}
+                              onClick={() => setDialog({ kind: 'cleanup', run: r })}
+                              className="runs-act runs-act-warn"
+                            >
+                              {t('cleanupLeftover')}
+                            </button>
+                          )}
                           <button
                             type="button"
                             disabled={busyId === r.id}
@@ -367,6 +389,21 @@ export default function RunsPage() {
             : t('cancelConfirm')
         }
         confirmLabel={busyId ? t('cancelling') : t('confirmOk')}
+        cancelLabel={t('confirmCancel')}
+        busy={busyId !== null}
+        onClose={() => !busyId && setDialog(null)}
+        onConfirm={confirmAction}
+      />
+      <ConfirmDialog
+        open={dialog?.kind === 'cleanup'}
+        tone="warn"
+        title={t('cleanupTitle')}
+        description={
+          dialog?.kind === 'cleanup'
+            ? `${t('cleanupConfirm')}\n\n${dialog.run.name} · ${dialog.run.job_name || ''}`
+            : t('cleanupConfirm')
+        }
+        confirmLabel={busyId ? t('cleaningLeftover') : t('confirmCleanup')}
         cancelLabel={t('confirmCancel')}
         busy={busyId !== null}
         onClose={() => !busyId && setDialog(null)}

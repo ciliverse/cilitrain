@@ -8,6 +8,13 @@ export type Cluster = {
   created_at: string
 }
 
+export type ClusterProbe = {
+  cluster_id: string
+  name: string
+  reachable: boolean
+  message?: string | null
+}
+
 export type Template = {
   id: string
   name: string
@@ -172,6 +179,7 @@ export const api = {
     }),
   templates: () => req<Template[]>('/api/templates'),
   clusters: () => req<Cluster[]>('/api/clusters'),
+  clusterProbe: (id: string) => req<ClusterProbe>(`/api/clusters/${id}/probe`),
   createCluster: (body: Record<string, unknown>) =>
     req<Cluster>('/api/clusters', { method: 'POST', body: JSON.stringify(body) }),
   deleteCluster: (id: string) => req<{ status: string }>(`/api/clusters/${id}`, { method: 'DELETE' }),
@@ -192,6 +200,8 @@ export const api = {
   createRun: (body: Record<string, unknown>) =>
     req<Run>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
   cancelRun: (id: string) => req<Run>(`/api/runs/${id}/cancel`, { method: 'POST' }),
+  cleanupRun: (id: string) =>
+    req<{ status: string; cleaned: boolean }>(`/api/runs/${id}/cleanup`, { method: 'POST' }),
   rerunRun: (id: string) => req<Run>(`/api/runs/${id}/rerun`, { method: 'POST' }),
   deleteRun: (id: string) => req<{ status: string }>(`/api/runs/${id}`, { method: 'DELETE' }),
   logs: (id: string) => req<{ pod_name?: string | null; logs: string }>(`/api/runs/${id}/logs`),

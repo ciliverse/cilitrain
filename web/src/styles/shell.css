@@ -27,6 +27,15 @@
   border-style: dashed;
 }
 
+.app-header .cluster-chip.is-offline .cluster-chip-live {
+  color: var(--warn);
+}
+
+.app-header .cluster-chip .dot.down {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn-muted);
+}
+
 .app-header .cluster-chip-name {
   min-width: 0;
 }
