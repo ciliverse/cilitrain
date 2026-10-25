@@ -31,8 +31,23 @@ def init_db() -> None:
         _ensure_column(conn, "pipeline", "owner_user_id", "VARCHAR")
         _ensure_column(conn, "run", "owner_user_id", "VARCHAR")
         _ensure_column(conn, "run", "gpu_count", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "run", "script", "TEXT")
         _ensure_column(conn, "cluster", "owner_user_id", "VARCHAR")
-
+        _ensure_column(conn, "cluster", "simulated", "BOOLEAN DEFAULT 0")
+        _ensure_column(conn, "run", "simulated", "BOOLEAN DEFAULT 0")
+        _ensure_column(conn, "run", "showcase_seed", "BOOLEAN DEFAULT 0")
+        _ensure_column(conn, "run", "kind", "VARCHAR DEFAULT 'train'")
+        _ensure_column(conn, "run", "model_id", "VARCHAR")
+        _ensure_column(conn, "run", "infer_input", "TEXT")
+        _ensure_column(conn, "run", "batch_rows", "INTEGER")
+        _ensure_column(conn, "run", "queue_reason", "VARCHAR")
+        _ensure_column(conn, "run", "params", "TEXT")
+        _ensure_column(conn, "run", "env_json", "TEXT")
+        _ensure_column(conn, "run", "resume_from", "VARCHAR")
+        _ensure_column(conn, "run", "sweep_id", "VARCHAR")
+        _ensure_column(conn, "run", "started_at", "DATETIME")
+        _ensure_column(conn, "run", "priority", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "run", "not_before", "DATETIME")
 
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:

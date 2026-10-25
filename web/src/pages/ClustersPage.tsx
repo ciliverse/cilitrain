@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
-import { api, type Cluster, type ClusterProbe } from '../api'
+import { api, fetchShowcase, type Cluster, type ClusterProbe } from '../api'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { useI18n } from '../i18n'
 import '../styles/ops.css'
 
@@ -11,12 +12,26 @@ export default function ClustersPage() {
   const [name, setName] = useState('')
   const [context, setContext] = useState('')
   const [content, setContent] = useState('')
+  const [kubePath, setKubePath] = useState('')
+  const [pendingDelete, setPendingDelete] = useState<Cluster | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [cilikubeSaved, setCilikubeSaved] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [showcaseOn, setShowcaseOn] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchShowcase().then((info) => {
+      if (!cancelled) setShowcaseOn(info.showcase)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function refresh() {
     const cs = await api.clusters()
@@ -50,18 +65,21 @@ export default function ClustersPage() {
     setErr('')
     setMsg('')
     const kube = content.trim()
-    if (!kube) {
-      setErr(t('kubeContentHint'))
+    const path = kubePath.trim()
+    if (!kube && !path) {
+      setErr(t('kubePathHint'))
       return
     }
     try {
       await api.createCluster({
         name,
-        kubeconfig_content: kube,
+        kubeconfig_content: kube || null,
+        kubeconfig_path: path || null,
         context: context || null,
       })
       setMsg(t('clusterAdded'))
       setContent('')
+      setKubePath('')
       setName('')
       setContext('')
       await refresh()
@@ -148,12 +166,15 @@ export default function ClustersPage() {
             className="field flex-1 mono"
             style={{ marginTop: 0 }}
             value={cilikube}
+            readOnly={showcaseOn}
             onChange={(e) => setCilikube(e.target.value)}
             placeholder="https://cilikube.example.com"
           />
-          <button type="submit" className="btn btn-ghost">
-            {cilikubeSaved ? t('saved') : t('save')}
-          </button>
+          {showcaseOn ? null : (
+            <button type="submit" className="btn btn-ghost">
+              {cilikubeSaved ? t('saved') : t('save')}
+            </button>
+          )}
           {consoleUrl && (
             <a
               href={`${consoleUrl}/overview`}
@@ -170,7 +191,11 @@ export default function ClustersPage() {
       <section className="panel panel-pad">
         <h2 className="ops-section-title">{t('clusters')}</h2>
         <p className="ops-section-desc">
-          {clusters.length === 0 ? t('clusterEmptyHint') : t('clustersListDesc')}
+          {showcaseOn
+            ? t('showcaseClusterNote')
+            : clusters.length === 0
+              ? t('clusterEmptyHint')
+              : t('clustersListDesc')}
         </p>
 
         {clusters.length === 0 ? null : (
@@ -180,9 +205,15 @@ export default function ClustersPage() {
                 <div className="ops-cluster-main">
                   <span className="ops-cluster-name">{c.name}</span>
                   <span
-                    className={`badge ${c.has_kubeconfig_content ? 'badge-success' : 'badge-warning'}`}
+                    className={`badge ${
+                      c.simulated || c.has_kubeconfig_content ? 'badge-success' : 'badge-warning'
+                    }`}
                   >
-                    {c.has_kubeconfig_content ? t('kubeSaved') : t('clusterKubeMissing')}
+                    {c.simulated
+                      ? t('showcaseClusterBadge')
+                      : c.has_kubeconfig_content
+                        ? t('kubeSaved')
+                        : t('clusterKubeMissing')}
                   </span>
                   {probes[c.id] ? (
                     <span
@@ -194,23 +225,28 @@ export default function ClustersPage() {
                   ) : (
                     <span className="badge">{t('probing')}</span>
                   )}
+                  {probes[c.id]?.reachable && probes[c.id].gpu_allocatable != null ? (
+                    <span className="badge badge-neutral">
+                      {t('gpuAlloc').replace('{n}', String(probes[c.id].gpu_allocatable))}
+                    </span>
+                  ) : null}
                   {c.context ? <span className="mono ops-cluster-ctx">{c.context}</span> : null}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm ops-btn-ghost-danger"
-                  onClick={async () => {
-                    await api.deleteCluster(c.id)
-                    await refresh()
-                  }}
-                >
-                  {t('remove')}
-                </button>
+                {c.simulated ? null : (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm ops-btn-ghost-danger"
+                    onClick={() => setPendingDelete(c)}
+                  >
+                    {t('remove')}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         )}
 
+        {showcaseOn ? null : (
         <form id="ops-add-cluster" onSubmit={addCluster} className="ops-add">
           <h3 className="ops-add-title">{t('clusterAddHeading')}</h3>
           <div className="ops-inline-form">
@@ -245,7 +281,6 @@ export default function ClustersPage() {
                   className="field mono text-xs"
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  required
                   spellCheck={false}
                 />
                 <div className="ops-kube-toolbar">
@@ -262,12 +297,48 @@ export default function ClustersPage() {
                 </div>
               </div>
             </div>
+            <label className="label ops-grow">
+              {t('kubePath')}
+              <input
+                className="field mono"
+                value={kubePath}
+                onChange={(e) => setKubePath(e.target.value)}
+                placeholder="~/.kube/config"
+              />
+              <span className="text-xs text-[var(--muted)]">{t('kubePathHint')}</span>
+            </label>
             <button type="submit" className="btn btn-primary">
               {t('addCluster')}
             </button>
           </div>
         </form>
+        )}
       </section>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        tone="danger"
+        title={t('deleteClusterTitle')}
+        description={`${t('deleteClusterConfirm')}\n\n${pendingDelete?.name || ''}`}
+        confirmLabel={deleting ? t('deleting') : t('confirmDelete')}
+        cancelLabel={t('confirmCancel')}
+        busy={deleting}
+        onClose={() => !deleting && setPendingDelete(null)}
+        onConfirm={async () => {
+          if (!pendingDelete) return
+          setDeleting(true)
+          setErr('')
+          try {
+            await api.deleteCluster(pendingDelete.id)
+            setPendingDelete(null)
+            await refresh()
+          } catch (ex) {
+            setErr(ex instanceof Error ? ex.message : String(ex))
+          } finally {
+            setDeleting(false)
+          }
+        }}
+      />
     </div>
   )
 }

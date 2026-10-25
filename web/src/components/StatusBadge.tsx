@@ -4,9 +4,12 @@ const map: Record<string, Tone> = {
   succeeded: 'success',
   running: 'warning',
   pending: 'info',
+  queued: 'neutral',
   failed: 'error',
   timeout: 'error',
   cancelled: 'neutral',
+  starting: 'info',
+  stopped: 'neutral',
 }
 
 export function statusTone(status: string): Tone {

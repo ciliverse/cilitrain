@@ -1,0 +1,658 @@
+/* Model registry + batch inference. Builds on runs.css tokens. */
+
+.model-ver {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius);
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: 0.1em;
+}
+
+.model-ver-lg {
+  font-size: 0.8rem;
+  vertical-align: 0.2em;
+}
+
+.model-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+}
+
+.model-metric {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.model-metric .k {
+  margin-right: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--muted-2);
+}
+
+.models-page .data-table th,
+.infer-history th {
+  white-space: nowrap;
+}
+
+/* —— Inference panel —— */
+.infer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .infer-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* index.css loads after page styles, so these need to outrank `.panel-note { margin: 0 }`. */
+.panel-note.infer-desc {
+  margin-bottom: 1rem;
+}
+
+.panel-note.infer-viewer {
+  margin-top: 0.75rem;
+}
+
+.panel-note.register-hint {
+  margin-top: 0.4rem;
+}
+
+.flash.register-err {
+  margin-top: 0.6rem;
+}
+
+.infer-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.infer-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.infer-count {
+  font-size: 0.7rem;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.infer-count[data-over="true"] {
+  color: var(--danger);
+}
+
+.infer-textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.infer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1rem;
+}
+
+.infer-grid[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.infer-range {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  color: var(--muted-2);
+}
+
+.infer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.infer-result {
+  min-height: 100%;
+}
+
+.infer-result-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.infer-echo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 1rem 0 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line-subtle);
+}
+
+.infer-echo dt {
+  font-size: 0.68rem;
+  color: var(--muted-2);
+}
+
+.infer-echo dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.infer-wait {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.5rem 0;
+}
+
+.infer-wait-bar {
+  position: relative;
+  display: block;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.infer-wait-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  background: var(--accent);
+  animation: infer-sweep 1.4s var(--ease-move) infinite;
+}
+
+@keyframes infer-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .infer-wait-bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+.infer-history-head {
+  margin: 0;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.infer-history-wrap {
+  overflow-x: auto;
+}
+
+.infer-history td {
+  padding: 0.6rem 1.25rem;
+}
+
+.infer-history th {
+  padding-left: 1.25rem;
+}
+
+.infer-cell {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+
+/* —— Prediction —— */
+.pred-pre {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  max-height: 22rem;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+  border: 1px solid var(--line-subtle);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.pred-prompt {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+
+.pred-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-top: 0.55rem;
+  font-size: 0.7rem;
+  color: var(--muted-2);
+}
+
+.pred-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.pred-label-k {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pred-label-v {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.pred-bars {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pred-bars li {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) 3.75rem;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.pred-bar-name {
+  color: var(--muted);
+}
+
+.pred-bars li[data-top="true"] .pred-bar-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pred-bar-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.pred-bar-track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--muted-2);
+  transition: width 420ms var(--ease-enter);
+}
+
+.pred-bars li[data-top="true"] .pred-bar-track i {
+  background: var(--accent);
+}
+
+.pred-bar-v {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* —— CSV batch inference —— */
+.infer-mode {
+  justify-self: start;
+  margin-bottom: 0.9rem;
+}
+
+.batch-cols {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.batch-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.batch-file {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--muted-2);
+}
+
+.batch-textarea {
+  min-height: 8rem;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.batch-actions {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.batch-hint {
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-hint[data-over="true"] {
+  color: var(--danger);
+}
+
+.pred-batch {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.pred-batch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pred-batch-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+}
+
+.pred-batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.pred-batch-table caption {
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  font-size: 0.68rem;
+  color: var(--muted-2);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.pred-batch-table th,
+.pred-batch-table td {
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.pred-batch-table th {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pred-batch-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.pred-batch-table td.pred-batch-gen {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pred-batch-conf {
+  color: var(--muted-2);
+}
+
+/* —— Version comparison —— */
+.model-versions tr[aria-current="true"] {
+  background: var(--accent-dim);
+}
+
+.model-ver-now {
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.model-versions td[data-best="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* —— Runs list kind switch —— */
+.runs-kind {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+}
+
+.runs-kind button {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0.28rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-hover) ease,
+    color var(--dur-hover) ease;
+}
+
+.runs-kind button[aria-pressed="true"] {
+  background: var(--bg-surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.runs-kind .n {
+  margin-left: 0.35rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: var(--muted-2);
+}
+
+/* —— Run detail inference panel —— */
+.run-infer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .run-infer-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.run-infer-input {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.run-infer-input dt {
+  font-size: 0.68rem;
+  color: var(--muted-2);
+}
+
+.run-infer-input dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.run-registered {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.runs-result {
+  display: block;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.runs-model-link {
+  color: var(--accent-text);
+}
+
+.runs-model-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* —— Online services —— */
+.svc-list .data-table td,
+.svc-detail .badge {
+  white-space: nowrap;
+}
+
+.svc-err-count {
+  color: var(--danger);
+}
+
+.svc-access-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.svc-field {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.svc-field-k {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.svc-field-v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.svc-h3 {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.svc-access .panel-note {
+  margin-top: 0.5rem;
+}
+
+.svc-stats {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.svc-stats b {
+  margin-left: 0.3rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.svc-replica-pick button {
+  min-width: 2rem;
+}
+
+.svc-deploy-fields {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.svc-deploy-fields .svc-replica-pick {
+  display: flex;
+  margin-top: 0.4rem;
+  width: max-content;
+}
+
+.svc-key-box {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.svc-key-box code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  user-select: all;
+}
+
+@media (max-width: 640px) {
+  .svc-field {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .svc-field-k {
+    grid-column: 1 / -1;
+  }
+}

@@ -52,6 +52,9 @@ def test_probe_reachable_when_apiserver_answers(tmp_path, monkeypatch):
     token = _token(client)
     fake = MagicMock()
     fake.probe.return_value = {"reachable": True, "message": "v1.35.0"}
+    fake.list_node_allocatable.return_value = [
+        {"status": {"allocatable": {"nvidia.com/gpu": "2"}}},
+    ]
     with patch("app.api.routes.DirectKube", return_value=fake):
         r = client.get("/api/clusters/c1/probe", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
@@ -60,6 +63,7 @@ def test_probe_reachable_when_apiserver_answers(tmp_path, monkeypatch):
     assert body["cluster_id"] == "c1"
     assert body["name"] == "lab-135"
     assert body["message"] == "v1.35.0"
+    assert body["gpu_allocatable"] == 2
 
 
 def test_probe_unreachable_when_apiserver_down(tmp_path, monkeypatch):

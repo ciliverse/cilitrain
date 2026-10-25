@@ -5,6 +5,7 @@ export type Cluster = {
   kubeconfig_path?: string | null
   has_kubeconfig_content: boolean
   cilikube_base_url?: string | null
+  simulated?: boolean
   created_at: string
 }
 
@@ -13,6 +14,7 @@ export type ClusterProbe = {
   name: string
   reachable: boolean
   message?: string | null
+  gpu_allocatable?: number | null
 }
 
 export type Template = {
@@ -26,6 +28,19 @@ export type Template = {
   memory: string
   timeout_seconds: number
   gpu_count?: number
+  kind?: string
+  script?: string | null
+  params?: ParamField[]
+  resumable?: boolean
+}
+
+export type ParamField = {
+  key: string
+  type: 'int' | 'float' | 'text'
+  default?: number | string
+  min?: number
+  max?: number
+  max_len?: number
 }
 
 export type CiliKubeLinks = {
@@ -60,6 +75,29 @@ export type Run = {
   duration_seconds?: number | null
   error_message?: string | null
   job_yaml?: string | null
+  script?: string | null
+  simulated?: boolean
+  showcase_seed?: boolean
+  kind?: 'train' | 'infer'
+  model_id?: string | null
+  model_label?: string | null
+  infer_input?: Record<string, string | number> | null
+  batch_rows?: number | null
+  prediction?: Prediction | null
+  registrable?: boolean
+  registered_models?: { id: string; label: string }[]
+  params?: Record<string, number | string>
+  env?: Record<string, string>
+  pvc_mount_path?: string
+  resume_from?: string | null
+  resume_from_name?: string | null
+  resumable?: boolean
+  sweep_id?: string | null
+  queue_position?: number | null
+  queue_reason?: QueueReason | null
+  priority?: Priority
+  not_before?: string | null
+  started_at?: string | null
   created_at: string
   updated_at: string
   finished_at?: string | null
@@ -67,6 +105,97 @@ export type Run = {
   cilikube_links?: CiliKubeLinks
   events: string[]
 }
+
+export type Prediction =
+  | { type: 'text'; text: string; prompt?: string; new_tokens?: number; dropped_chars?: number }
+  | { type: 'classification'; label: string; probabilities: Record<string, number> }
+  | BatchPrediction
+  | { type?: undefined; [k: string]: unknown }
+
+export type BatchPrediction = {
+  type: 'batch'
+  output: 'classification' | 'text'
+  rows: number
+  file: string
+  counts?: Record<string, number>
+  sample: { input: Record<string, string | number>; label?: string; confidence?: number; generated?: string }[]
+}
+
+export type InferField = {
+  key: string
+  type: 'text' | 'int' | 'float'
+  default?: string | number
+  min?: number
+  max?: number
+  max_len?: number
+}
+
+export type InferSpec = {
+  output: 'text' | 'classification'
+  fields: InferField[]
+  batch_max_rows?: number
+  cpu?: string
+  memory?: string
+  timeout_seconds?: number
+}
+
+export type ModelVersion = {
+  id: string
+  name: string
+  version: number
+  label: string
+  template: string
+  source_run_id?: string | null
+  source_run_name?: string | null
+  source_params?: Record<string, number | string>
+  files: { path: string; size: number }[]
+  size_bytes: number
+  metrics: Record<string, number | string>
+  infer?: InferSpec | null
+  infer_count: number
+  showcase_seed?: boolean
+  created_at: string
+}
+
+export type ServiceStatus = 'starting' | 'running' | 'stopped' | 'failed'
+
+export type ServiceRequest = { at: string; ok: boolean; latency_ms: number; rows: number; summary: string }
+
+export type InferenceService = {
+  id: string
+  name: string
+  model_id: string
+  model_label?: string | null
+  template: string
+  cluster_id: string
+  cluster_name?: string | null
+  namespace: string
+  owner_user_id?: string | null
+  image: string
+  cpu: string
+  memory: string
+  replicas: number
+  ready_replicas: number
+  status: ServiceStatus
+  status_message?: string | null
+  simulated: boolean
+  error_message?: string | null
+  api_key_prefix?: string | null
+  endpoint_path: string
+  requests: number
+  errors: number
+  avg_latency_ms?: number | null
+  last_request_at?: string | null
+  infer?: InferSpec | null
+  recent: ServiceRequest[]
+  created_at: string
+  started_at?: string | null
+  stopped_at?: string | null
+}
+
+export type ServiceWithKey = { service: InferenceService; api_key: string }
+
+export type ServicePrediction = { output?: Prediction; outputs?: Prediction[]; latency_ms: number }
 
 export type MetricsView = {
   run_id: string
@@ -95,6 +224,8 @@ export type MetricsView = {
   }
 }
 
+export type RunTrend = { key: string; points: number[]; last: number }
+
 export type Pipeline = {
   id: string
   name: string
@@ -109,6 +240,70 @@ export type Pipeline = {
   created_at: string
   updated_at: string
   finished_at?: string | null
+}
+
+type QuotaKeys = { active: number; cpu: number; memory_gi: number; gpu: number }
+
+export type SchedulerInfo = {
+  concurrency: number
+  max_queued: number
+  queue_timeout_seconds: number
+  /** 0 means no cap */
+  quota: QuotaKeys
+  usage: QuotaKeys
+  my_queued: number
+  namespaces: { cluster_id: string; cluster_name: string; namespace: string; active: number; queued: number }[]
+  queue: SchedulerItem[]
+  active: SchedulerItem[]
+}
+
+export type QueueReason = 'namespace' | 'user_active' | 'user_quota' | 'scheduled'
+/** -1 low, 0 normal, 1 high (admin only) */
+export type Priority = -1 | 0 | 1
+
+export type SchedulerItem = {
+  id: string
+  kind: 'train' | 'infer' | 'service'
+  name: string
+  owner?: string | null
+  mine: boolean
+  cluster_name: string
+  namespace: string
+  status: string
+  priority: Priority
+  queue_reason?: QueueReason | null
+  queue_position?: number | null
+  not_before?: string | null
+  cpu: string
+  memory: string
+  gpu_count: number
+  created_at: string
+  started_at?: string | null
+}
+
+export type ShowcaseAccount = {
+  username: string
+  password: string
+  role: string
+}
+
+export type ShowcaseInfo = {
+  showcase: boolean
+  message?: string
+  cluster?: string
+  accounts?: ShowcaseAccount[]
+}
+
+/** Public. Accounts are present only when the server runs with showcase mode on. */
+export async function fetchShowcase(): Promise<ShowcaseInfo> {
+  try {
+    const res = await fetch('/api/showcase')
+    if (!res.ok) return { showcase: false }
+    const data = (await res.json()) as ShowcaseInfo
+    return data?.showcase ? data : { showcase: false }
+  } catch {
+    return { showcase: false }
+  }
 }
 
 const TOKEN_KEY = 'cilitrain_token'
@@ -128,6 +323,28 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+/** Fetch with the session token and save the response as a file. */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const token = getToken()
+  const res = await fetch(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      detail = (await res.json()).detail || detail
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail)
+  }
+  const named = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.headers.get('content-disposition') || '')
+  const url = URL.createObjectURL(await res.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = named ? decodeURIComponent(named[1]) : fallbackName
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -184,9 +401,22 @@ export const api = {
     req<Cluster>('/api/clusters', { method: 'POST', body: JSON.stringify(body) }),
   deleteCluster: (id: string) => req<{ status: string }>(`/api/clusters/${id}`, { method: 'DELETE' }),
   settings: () =>
-    req<{ cilikube_base_url?: string | null; cilikube_configured?: boolean; max_gpu?: number }>(
-      '/api/settings',
-    ),
+    req<{
+      cilikube_base_url?: string | null
+      cilikube_configured?: boolean
+      max_gpu?: number
+      max_cpu?: number
+      max_memory_gi?: number
+      default_concurrency?: number
+      max_queued?: number
+      user_max_active?: number
+      user_max_cpu?: number
+      user_max_memory_gi?: number
+      user_max_gpu?: number
+      queue_timeout_seconds?: number
+      prometheus_url?: string | null
+    }>('/api/settings'),
+  scheduler: () => req<SchedulerInfo>('/api/scheduler'),
   putSettings: (cilikube_base_url: string | null) =>
     req<{ cilikube_base_url?: string | null; cilikube_configured?: boolean; max_gpu?: number }>(
       '/api/settings',
@@ -199,13 +429,25 @@ export const api = {
   run: (id: string) => req<Run>(`/api/runs/${id}`),
   createRun: (body: Record<string, unknown>) =>
     req<Run>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
+  createSweep: (run: Record<string, unknown>, grid: Record<string, (number | string)[]>) =>
+    req<{ sweep_id: string; runs: Run[] }>('/api/sweeps', {
+      method: 'POST',
+      body: JSON.stringify({ run, grid }),
+    }),
   cancelRun: (id: string) => req<Run>(`/api/runs/${id}/cancel`, { method: 'POST' }),
+  setRunPriority: (id: string, priority: Priority) =>
+    req<Run>(`/api/runs/${id}/priority`, { method: 'PUT', body: JSON.stringify({ priority }) }),
+  startRunNow: (id: string) => req<Run>(`/api/runs/${id}/start-now`, { method: 'POST' }),
   cleanupRun: (id: string) =>
     req<{ status: string; cleaned: boolean }>(`/api/runs/${id}/cleanup`, { method: 'POST' }),
   rerunRun: (id: string) => req<Run>(`/api/runs/${id}/rerun`, { method: 'POST' }),
   deleteRun: (id: string) => req<{ status: string }>(`/api/runs/${id}`, { method: 'DELETE' }),
   logs: (id: string) => req<{ pod_name?: string | null; logs: string }>(`/api/runs/${id}/logs`),
   metrics: (id: string) => req<MetricsView>(`/api/runs/${id}/metrics`),
+  runTrends: (ids: string[]) =>
+    req<{ trends: Record<string, RunTrend> }>(
+      `/api/run-trends?ids=${ids.map(encodeURIComponent).join(',')}`,
+    ),
   artifacts: (id: string) =>
     req<{ run_id: string; items: { path: string; size: number }[] }>(`/api/runs/${id}/artifacts`),
   artifactUrl: (id: string, path: string) =>
@@ -216,6 +458,32 @@ export const api = {
       comparison: { metric_keys: string[]; rows: Record<string, unknown>[] }
       metrics: Record<string, MetricsView>
     }>(`/api/compare/runs?ids=${ids.map(encodeURIComponent).join(',')}`),
+  models: () => req<ModelVersion[]>('/api/models'),
+  model: (id: string) => req<ModelVersion>(`/api/models/${id}`),
+  modelRuns: (id: string) => req<Run[]>(`/api/models/${id}/runs`),
+  registerModel: (runId: string, name: string) =>
+    req<ModelVersion>(`/api/runs/${runId}/register-model`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  infer: (modelId: string, input: Record<string, string | number>) =>
+    req<Run>(`/api/models/${modelId}/infer`, { method: 'POST', body: JSON.stringify({ input }) }),
+  inferBatch: (modelId: string, csv: string) =>
+    req<Run>(`/api/models/${modelId}/infer-batch`, { method: 'POST', body: JSON.stringify({ csv }) }),
+  modelDownloadUrl: (modelId: string) => `/api/models/${modelId}/download`,
+  services: () => req<InferenceService[]>('/api/services'),
+  service: (id: string) => req<InferenceService>(`/api/services/${id}`),
+  createService: (body: { model_id: string; name?: string; replicas?: number }) =>
+    req<ServiceWithKey>('/api/services', { method: 'POST', body: JSON.stringify(body) }),
+  stopService: (id: string) => req<InferenceService>(`/api/services/${id}/stop`, { method: 'POST' }),
+  startService: (id: string) => req<InferenceService>(`/api/services/${id}/start`, { method: 'POST' }),
+  scaleService: (id: string, replicas: number) =>
+    req<InferenceService>(`/api/services/${id}/replicas`, { method: 'PUT', body: JSON.stringify({ replicas }) }),
+  rotateServiceKey: (id: string) => req<ServiceWithKey>(`/api/services/${id}/rotate-key`, { method: 'POST' }),
+  deleteService: (id: string) => req<{ status: string }>(`/api/services/${id}`, { method: 'DELETE' }),
+  serviceLogs: (id: string) => req<{ logs: string }>(`/api/services/${id}/logs`),
+  servicePredict: (id: string, input: Record<string, string | number>) =>
+    req<ServicePrediction>(`/api/services/${id}/predict`, { method: 'POST', body: JSON.stringify({ input }) }),
   pipelines: () => req<Pipeline[]>('/api/pipelines'),
   pipeline: (id: string) => req<Pipeline>(`/api/pipelines/${id}`),
   createPipeline: (body: Record<string, unknown>) =>

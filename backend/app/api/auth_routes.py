@@ -13,6 +13,7 @@ from app.api.deps import CurrentUser, get_current_user, require_admin
 from app.config import settings
 from app.db import get_session
 from app.models.entities import AuthSession, Cluster, ClusterGrant, User
+from app.services.showcase import refuse
 from app.services.auth import (
     ROLES,
     create_session,
@@ -136,6 +137,7 @@ def change_password(
 ) -> UserOut:
     if settings.auth_disabled:
         raise HTTPException(status_code=400, detail="auth disabled")
+    refuse("showcase accounts are fixed")
     user = session.get(User, cu.user.id)
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
@@ -168,6 +170,7 @@ def create_user(
     _: Annotated[CurrentUser, Depends(require_admin)],
     session: Session = Depends(get_session),
 ) -> UserOut:
+    refuse("showcase accounts are fixed")
     if body.role not in ROLES:
         raise HTTPException(status_code=400, detail=f"role must be one of {sorted(ROLES)}")
     if session.exec(select(User).where(User.username == body.username.strip())).first():
@@ -191,6 +194,7 @@ def update_user(
     _: Annotated[CurrentUser, Depends(require_admin)],
     session: Session = Depends(get_session),
 ) -> UserOut:
+    refuse("showcase accounts are fixed")
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
@@ -236,6 +240,7 @@ def add_grant(
     _: Annotated[CurrentUser, Depends(require_admin)],
     session: Session = Depends(get_session),
 ) -> GrantOut:
+    refuse("showcase accounts are fixed")
     if not session.get(User, user_id):
         raise HTTPException(status_code=404, detail="user not found")
     if not session.get(Cluster, body.cluster_id):
@@ -269,6 +274,7 @@ def delete_grant(
     _: Annotated[CurrentUser, Depends(require_admin)],
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
+    refuse("showcase accounts are fixed")
     g = session.get(ClusterGrant, grant_id)
     if not g or g.user_id != user_id:
         raise HTTPException(status_code=404, detail="grant not found")

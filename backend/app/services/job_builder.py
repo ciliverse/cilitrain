@@ -50,8 +50,8 @@ def wrap_with_hold(command: list[str], args: list[str], hold_seconds: int) -> tu
 
 @dataclass
 class Guardrails:
-    max_cpu: float = 2.0
-    max_memory_gi: float = 4.0
+    max_cpu: float = 8.0
+    max_memory_gi: float = 16.0
     max_gpu: int = 2
     default_timeout_seconds: int = 7200
 
@@ -123,6 +123,38 @@ def job_name_for(run_id: str) -> str:
     return f"cilitrain-{short}"
 
 
+SCRIPT_MOUNT_PATH = "/workspace"
+MODEL_MOUNT_PATH = "/model"
+
+
+def script_configmap_name(run_id: str) -> str:
+    return f"{job_name_for(run_id)}-scripts"
+
+
+def build_script_configmap(
+    *,
+    run_id: str,
+    namespace: str,
+    template: str,
+    files: dict[str, str],
+) -> dict[str, Any]:
+    """Program bodies live in a ConfigMap so the Job manifest stays reviewable."""
+    return {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": script_configmap_name(run_id),
+            "namespace": namespace,
+            "labels": {
+                LABEL_MANAGED: "cilitrain",
+                LABEL_RUN: run_id,
+                LABEL_TEMPLATE: template,
+            },
+        },
+        "data": dict(files),
+    }
+
+
 def build_job(
     *,
     run_id: str,
@@ -141,6 +173,9 @@ def build_job(
     output_path: str = "/output",
     hold_seconds: int | None = None,
     guardrails: Guardrails | None = None,
+    files: dict[str, str] | None = None,
+    model_mount: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     g = guardrails or Guardrails()
     validate_resources(cpu, memory, timeout_seconds, g, gpu_count=gpu_count)
@@ -176,6 +211,18 @@ def build_job(
         volumes.append({"name": "output", "emptyDir": {}})
         volume_mounts.append({"name": "output", "mountPath": output_path})
 
+    if files:
+        volumes.append(
+            {"name": "scripts", "configMap": {"name": script_configmap_name(run_id)}}
+        )
+        volume_mounts.append(
+            {"name": "scripts", "mountPath": SCRIPT_MOUNT_PATH, "readOnly": True}
+        )
+
+    if model_mount:
+        volumes.append({"name": "model", "emptyDir": {}})
+        volume_mounts.append({"name": "model", "mountPath": MODEL_MOUNT_PATH})
+
     wrap_cmd, wrap_args = wrap_with_hold(command, args, hold)
 
     requests: dict[str, str] = {"cpu": cpu, "memory": memory}
@@ -198,6 +245,9 @@ def build_job(
             {"name": "CILITRAIN_HOLD_SECONDS", "value": str(hold)},
             {"name": "CILITRAIN_GPU_COUNT", "value": str(gpus)},
             {"name": "PYTHONUNBUFFERED", "value": "1"},
+            *([{"name": "CILITRAIN_DATA", "value": pvc_mount_path}] if pvc_name else []),
+            *([{"name": "CILITRAIN_MODEL_DIR", "value": MODEL_MOUNT_PATH}] if model_mount else []),
+            *[{"name": k, "value": v} for k, v in (extra_env or {}).items()],
         ],
         "volumeMounts": volume_mounts,
         "command": wrap_cmd,

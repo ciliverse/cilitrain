@@ -1,0 +1,18 @@
+# Public exhibit. Simulated runs only — do not mount a kubeconfig.
+services:
+  cilitrain:
+    build:
+      context: ../..
+      dockerfile: deploy/showcase/Dockerfile
+    ports:
+      - "8890:8890"
+    environment:
+      CILITRAIN_SHOWCASE: "1"
+      CILITRAIN_DATA_DIR: /data
+      CILITRAIN_STATIC_DIR: /app/web
+    volumes:
+      - cilitrain-data:/data
+    restart: unless-stopped
+
+volumes:
+  cilitrain-data:

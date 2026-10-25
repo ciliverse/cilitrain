@@ -1,0 +1,239 @@
+/* Hyperparameters, sweeps, env vars, resume and queue. Builds on shell.css spec-form tokens. */
+
+.spec-section {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line-subtle);
+}
+
+.spec-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+}
+
+.spec-section-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.spec-section .spec-tmpl-hint {
+  margin: 0;
+  max-width: 62ch;
+}
+
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.param-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.param-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.param-label {
+  font-size: 0.78rem;
+  font-weight: 550;
+  color: var(--muted);
+}
+
+.param-mode {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    color var(--dur-hover) ease,
+    background-color var(--dur-hover) ease,
+    border-color var(--dur-hover) ease;
+}
+
+.param-mode:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.param-mode[aria-pressed="true"] {
+  color: var(--accent-text);
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--line));
+  background: var(--accent-dim);
+}
+
+.param-cell[data-sweep="true"] .field {
+  border-style: dashed;
+}
+
+.param-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.66rem;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+.param-foot > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.param-foot > span + span {
+  flex: none;
+}
+
+.sweep-summary {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--accent-text);
+}
+
+.sweep-summary[data-over="true"] {
+  color: var(--danger);
+}
+
+.env-editor {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+
+.env-rows {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.env-remove {
+  min-width: 2rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.env-error {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--danger);
+}
+
+.pvc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.flash-info {
+  background: var(--info-muted);
+  color: var(--info);
+}
+
+.resume-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.resume-banner a {
+  font-weight: 600;
+}
+
+.runs-spec > .runs-spec-wide {
+  grid-column: 1 / -1;
+}
+
+.runs-spec dd.param-chips {
+  font-size: 0.72rem;
+}
+
+.param-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.param-chip {
+  display: inline-flex;
+  gap: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.72rem;
+  background: var(--bg-elevated);
+}
+
+.param-chip > span:first-child {
+  color: var(--muted);
+}
+
+.pick-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.pick-name .sweep-badge {
+  flex: none;
+}
+
+.sweep-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius);
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--accent-text);
+  background: var(--accent-dim);
+  vertical-align: middle;
+}
+
+.queue-pos {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .pvc-row,
+  .env-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .env-row .env-remove {
+    justify-self: end;
+  }
+}

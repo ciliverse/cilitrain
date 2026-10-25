@@ -5,6 +5,9 @@ import { useI18n } from '../i18n'
 const LINKS = [
   { to: '/', end: true, key: 'navRuns' as const },
   { to: '/new', key: 'navNew' as const },
+  { to: '/scheduler', key: 'navScheduler' as const },
+  { to: '/models', key: 'navModels' as const },
+  { to: '/services', key: 'navServices' as const },
   { to: '/pipelines', key: 'navPipelines' as const },
   { to: '/compare', key: 'navCompare' as const },
   { to: '/clusters', key: 'navClusters' as const },

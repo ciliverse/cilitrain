@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
-import { api, getToken, setToken, type AuthUser } from './api'
+import { api, fetchShowcase, getToken, setToken, type AuthUser } from './api'
 import { I18nProvider, useI18n } from './i18n'
 import { ThemeProvider, useTheme } from './useTheme'
 import type { Theme } from './theme'
@@ -8,9 +8,14 @@ import RunsPage from './pages/RunsPage'
 import NewRunPage from './pages/NewRunPage'
 import RunDetailPage from './pages/RunDetailPage'
 import SettingsPage from './pages/SettingsPage'
+import SchedulerPage from './pages/SchedulerPage'
 import ClustersPage from './pages/ClustersPage'
 import ComparePage from './pages/ComparePage'
 import PipelinesPage from './pages/PipelinesPage'
+import ModelsPage from './pages/ModelsPage'
+import ModelDetailPage from './pages/ModelDetailPage'
+import ServicesPage from './pages/ServicesPage'
+import ServiceDetailPage from './pages/ServiceDetailPage'
 import LoginPage from './pages/LoginPage'
 import NavTabs from './components/NavTabs'
 import PageEnter from './components/PageEnter'
@@ -63,6 +68,9 @@ function Shell({
   const { theme, toggle: toggleTheme } = useTheme()
   const [clusterLabel, setClusterLabel] = useState<string | null>(null)
   const [clusterReachable, setClusterReachable] = useState<boolean | null>(null)
+  const [clusterGpu, setClusterGpu] = useState<number | null>(null)
+  const [cilikubeUrl, setCilikubeUrl] = useState<string | null>(null)
+  const [showcaseOn, setShowcaseOn] = useState(false)
   const probedId = useRef<string | null>(null)
 
   const themeLabel =
@@ -70,29 +78,45 @@ function Shell({
 
   useEffect(() => {
     let cancelled = false
+    fetchShowcase().then((info) => {
+      if (!cancelled) setShowcaseOn(info.showcase)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
     async function tick() {
       try {
-        const cs = await api.clusters()
+        const [cs, st] = await Promise.all([api.clusters(), api.settings()])
         if (cancelled) return
-        const first = cs[0]
+        setCilikubeUrl(st.cilikube_configured && st.cilikube_base_url ? st.cilikube_base_url : null)
+        const preferred = window.localStorage.getItem('cilitrain.preferredCluster')
+        const first = cs.find((c) => c.id === preferred) || cs[0]
         if (!first) {
           probedId.current = null
           setClusterLabel(null)
           setClusterReachable(null)
+          setClusterGpu(null)
           return
         }
         setClusterLabel(first.name)
         if (probedId.current !== first.id) {
           probedId.current = first.id
           setClusterReachable(null)
+          setClusterGpu(null)
         }
         const probe = await api.clusterProbe(first.id)
         if (cancelled) return
         setClusterReachable(probe.reachable)
+        setClusterGpu(typeof probe.gpu_allocatable === 'number' ? probe.gpu_allocatable : null)
       } catch {
         if (!cancelled) {
           setClusterLabel(null)
           setClusterReachable(null)
+          setClusterGpu(null)
         }
       }
     }
@@ -106,6 +130,11 @@ function Shell({
 
   return (
     <div className="app-shell">
+      {showcaseOn ? (
+        <div className="showcase-banner" role="status">
+          {t('showcaseBanner')}
+        </div>
+      ) : null}
       <header className="app-header">
         <div className="app-header-left">
           <Wordmark />
@@ -152,6 +181,9 @@ function Shell({
                   : clusterReachable === false
                     ? t('disconnected')
                     : t('probing')}
+                {clusterReachable === true && clusterGpu != null
+                  ? ` · ${t('gpuAlloc').replace('{n}', String(clusterGpu))}`
+                  : ''}
               </span>
             ) : null}
           </Link>
@@ -162,6 +194,21 @@ function Shell({
         </nav>
 
         <div className="app-header-right">
+          {cilikubeUrl ? (
+            <a
+              href={cilikubeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="header-logout"
+              title={t('cilikubeNavHint')}
+            >
+              {t('headerCilikube')}
+            </a>
+          ) : (
+            <Link to="/clusters#cilikube" className="header-logout" title={t('cilikubeNotConfigured')}>
+              {t('headerCilikube')}
+            </Link>
+          )}
           <button
             type="button"
             className="btn-icon"
@@ -287,7 +334,13 @@ function AppRoutes() {
               <Routes>
                 <Route path="/" element={<RunsPage />} />
                 <Route path="/new" element={<NewRunPage />} />
+                <Route path="/runs/new" element={<Navigate to="/new" replace />} />
                 <Route path="/runs/:id" element={<RunDetailPage />} />
+                <Route path="/scheduler" element={<SchedulerPage />} />
+                <Route path="/models" element={<ModelsPage />} />
+                <Route path="/models/:id" element={<ModelDetailPage />} />
+                <Route path="/services" element={<ServicesPage />} />
+                <Route path="/services/:id" element={<ServiceDetailPage />} />
                 <Route path="/compare" element={<ComparePage />} />
                 <Route path="/pipelines" element={<PipelinesPage />} />
                 <Route path="/clusters" element={<ClustersPage />} />

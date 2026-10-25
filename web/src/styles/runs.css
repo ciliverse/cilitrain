@@ -10,84 +10,244 @@
   margin-bottom: 1.15rem;
 }
 
-.runs-page .stat-strip {
+/* Filter tabs + search share one row; counts read as data, not as buttons. */
+.runs-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
 }
 
-.runs-page .stat-chip {
-  flex: 1 1 6.5rem;
-  max-width: 10.5rem;
-  flex-direction: row;
+.runs-filters {
+  display: flex;
+  gap: 1.35rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.runs-filter {
+  appearance: none;
+  position: relative;
+  display: inline-flex;
   align-items: baseline;
-  justify-content: flex-start;
-  gap: 0.5rem;
-  padding: 0.42rem 0.7rem;
-}
-
-.runs-page .stat-chip .n {
-  font-size: 1.05rem;
-}
-
-.runs-page .stat-chip .k {
-  text-transform: none;
-  letter-spacing: 0.01em;
-  font-size: 0.75rem;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.55rem 0 0.7rem;
+  border: 0;
+  background: none;
+  font-size: 0.8125rem;
   font-weight: 550;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--runs-dur) ease;
 }
 
-.runs-page .stat-chip .n {
+.runs-filter .n {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--muted-2);
 }
 
-.runs-page .stat-chip[data-tone="live"][data-hot="true"] .n {
+.runs-filter[data-tone="live"][data-hot="true"] .n {
   color: var(--warn);
 }
 
-.runs-page .stat-chip[data-tone="ok"][data-hot="true"] .n {
+.runs-filter[data-tone="ok"][data-hot="true"] .n {
   color: var(--success);
 }
 
-.runs-page .stat-chip[data-tone="fail"][data-hot="true"] .n {
+.runs-filter[data-tone="fail"][data-hot="true"] .n {
   color: var(--danger);
 }
 
-.runs-page .stat-chip[aria-pressed="true"] {
-  background-color: var(--accent-dim);
+.runs-filter::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--runs-dur) var(--runs-ease);
 }
 
-.runs-page .toolbar {
-  margin-bottom: 0.75rem;
+.runs-filter:hover,
+.runs-filter[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.runs-filter[aria-pressed="true"]::after {
+  transform: scaleX(1);
+}
+
+.runs-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.runs-search.field {
+  width: min(18rem, 100%);
+  margin: 0 0 0.45rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+  font-size: 0.8125rem;
 }
 
 .runs-page .data-table-wrap {
-  max-height: calc(100vh - 16.5rem);
+  max-height: calc(100vh - 15rem);
 }
 
 .runs-page .data-table th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--bg);
+  background: var(--bg-surface);
 }
 
 .runs-page .data-table td {
-  padding: 0.62rem 1rem;
+  padding: 0.7rem 1rem;
   vertical-align: middle;
 }
 
 .runs-page .data-table tbody tr.data-row {
+  position: relative;
   transition: background-color var(--runs-dur) ease;
+}
+
+.runs-page .data-table tbody tr[data-live="true"] td:first-child {
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+.runs-name {
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  transition: color var(--runs-dur) ease;
+}
+
+.data-row:hover .runs-name {
+  color: var(--accent-text);
+}
+
+.runs-sub {
+  max-width: 16rem;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  color: var(--muted-2);
+}
+
+.runs-note {
+  color: var(--danger);
+  opacity: 0.85;
+}
+
+.runs-tmpl {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.runs-muted {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.runs-trend {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.runs-trend-v {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.runs-trend-k {
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.sparkline {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+
+.sparkline-head.is-live {
+  animation: spark-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes spark-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.runs-th-acts,
+.runs-td-acts {
+  text-align: right;
 }
 
 .runs-acts {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.1rem;
   white-space: nowrap;
+}
+
+.runs-act-ext {
+  gap: 0.3rem;
+}
+
+.runs-act-ext svg {
+  opacity: 0.6;
+}
+
+/* Quiet until the row is in play; touch devices always see them. */
+@media (hover: hover) and (pointer: fine) {
+  .runs-page .runs-acts {
+    opacity: 0.55;
+    transition: opacity var(--runs-dur) ease;
+  }
+
+  .runs-page .data-row:hover .runs-acts,
+  .runs-page .data-row:focus-within .runs-acts {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .runs-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+
+  .runs-search.field {
+    width: 100%;
+  }
 }
 
 .runs-act {
@@ -231,10 +391,59 @@
   margin: 0;
 }
 
-.runs-job {
-  margin: 0.3rem 0 0;
+.runs-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.runs-head-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  margin-top: 0.45rem;
   font-size: 0.75rem;
   color: var(--muted-2);
+}
+
+.runs-ck {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--line);
+}
+
+.runs-ck-label {
+  margin-right: 0.3rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.runs-ck-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition:
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.runs-ck-link svg {
+  opacity: 0.6;
+}
+
+.runs-ck-link:hover {
+  color: var(--accent-text);
+  background-color: var(--accent-dim);
 }
 
 .runs-spec {
@@ -287,12 +496,6 @@
 
 .runs-chart-tip {
   transition: opacity 150ms ease;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .runs-page .stat-chip:hover {
-    background-color: var(--bg-hover);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

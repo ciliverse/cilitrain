@@ -15,6 +15,8 @@ from app.config import settings
 from app.services.cluster.direct import DirectKube
 
 DONE_MARKER = ".cilitrain-done"
+# Bookkeeping written next to the artifacts; never shown to users as a product.
+INTERNAL_FILES = frozenset({".index.json", ".harvest.json"})
 HARVEST_PENDING = "pending"
 HARVEST_DONE = "done"
 HARVEST_SKIPPED = "skipped"
@@ -175,7 +177,7 @@ def list_local_artifacts(run_id: str) -> list[dict[str, Any]]:
             pass
     items: list[dict[str, Any]] = []
     for p in dest.rglob("*"):
-        if p.is_file() and p.name != ".index.json":
+        if p.is_file() and p.name not in INTERNAL_FILES:
             items.append({"path": str(p.relative_to(dest)), "size": p.stat().st_size})
     return items
 

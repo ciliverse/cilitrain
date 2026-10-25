@@ -1,7 +1,20 @@
 import pytest
 from fastapi import HTTPException
 
-from app.services.gpu_probe import assert_cluster_has_gpu, cluster_has_allocatable_gpu
+from app.services.gpu_probe import (
+    assert_cluster_has_gpu,
+    cluster_has_allocatable_gpu,
+    count_allocatable_gpu,
+)
+
+
+def test_count_allocatable_gpu_sums_nodes():
+    nodes = [
+        {"status": {"allocatable": {"nvidia.com/gpu": "2"}}},
+        {"status": {"allocatable": {"nvidia.com/gpu": "1"}}},
+        {"status": {"allocatable": {"cpu": "4"}}},
+    ]
+    assert count_allocatable_gpu(nodes) == 3
 
 
 def test_detects_gpu_from_allocatable():

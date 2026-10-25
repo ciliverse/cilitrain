@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react'
-import { api, setToken, type AuthUser } from '../api'
+import { useEffect, useState, type FormEvent } from 'react'
+import { api, fetchShowcase, setToken, type AuthUser, type ShowcaseInfo } from '../api'
 import { useI18n } from '../i18n'
 import { useTheme } from '../useTheme'
-import type { Theme } from '../theme'
+import { resolveTheme, type Theme } from '../theme'
+import LossField from '../components/LossField'
 import '../styles/login.css'
 
 function ThemeIcon({ theme }: { theme: Theme }) {
@@ -29,6 +30,45 @@ function ThemeIcon({ theme }: { theme: Theme }) {
   )
 }
 
+function LossRail() {
+  const { t } = useI18n()
+  const { theme, prefersDark } = useTheme()
+  const [r, setR] = useState({ step: 0, loss: 0, lr: 3e-4 })
+  const stats = [
+    { k: 'step', v: r.step.toLocaleString('en-US') },
+    { k: 'loss', v: r.loss.toFixed(4) },
+    { k: 'lr', v: r.lr.toExponential(1) },
+  ]
+
+  return (
+    <aside className="login-rail">
+      <LossField tone={resolveTheme(theme, prefersDark)} onReadout={setR} />
+      <div className="login-rail-top">
+        <div className="wordmark login-wordmark" aria-label="CiliTrain">
+          <span className="wordmark-prefix">ciliverse</span>
+          <span className="wordmark-name">train</span>
+        </div>
+        <p className="login-signal">
+          <span className="login-signal-dot" aria-hidden />
+          {t('loginSignal')}
+        </p>
+      </div>
+      <div className="login-rail-bottom">
+        <h2 className="login-headline">{t('loginHeadline')}</h2>
+        <p className="login-lead">{t('tagline')}</p>
+        <dl className="login-readout" aria-hidden>
+          {stats.map((s) => (
+            <div key={s.k}>
+              <dt>{s.k}</dt>
+              <dd>{s.v}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </aside>
+  )
+}
+
 export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
   const { t, lang, setLang } = useI18n()
   const { theme, toggle } = useTheme()
@@ -37,14 +77,19 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser)
   const [err, setErr] = useState('')
   const [shake, setShake] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [showcase, setShowcase] = useState<ShowcaseInfo>({ showcase: false })
+
+  useEffect(() => {
+    let cancelled = false
+    fetchShowcase().then((info) => {
+      if (!cancelled) setShowcase(info)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const themeLabel =
     theme === 'light' ? t('themeLight') : theme === 'dark' ? t('themeDark') : t('themeSystem')
-
-  const ops = [
-    { title: t('loginOpsSubmit'), hint: t('loginOpsSubmitHint') },
-    { title: t('loginOpsWatch'), hint: t('loginOpsWatchHint') },
-    { title: t('loginOpsCompare'), hint: t('loginOpsCompareHint') },
-  ] as const
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -64,29 +109,7 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser)
 
   return (
     <div className="login-screen">
-      <aside className="login-rail">
-        <div className="login-rail-brand">
-          <p className="login-kicker">{t('navSectionTrain')}</p>
-          <div className="wordmark login-wordmark" aria-label="CiliTrain">
-            <span className="wordmark-prefix">ciliverse</span>
-            <span className="wordmark-name">train</span>
-          </div>
-          <p className="login-lead">{t('tagline')}</p>
-        </div>
-        <ol className="login-ops" aria-label={t('loginOpsAria')}>
-          {ops.map((step, i) => (
-            <li key={step.title} className="login-ops-item">
-              <span className="login-ops-idx" aria-hidden>
-                {i + 1}
-              </span>
-              <div>
-                <p className="login-ops-title">{step.title}</p>
-                <p className="login-ops-hint">{step.hint}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </aside>
+      <LossRail />
 
       <div className="login-form-col">
         <div key={shake} className={`login-card${err ? ' shake' : ''}`}>
@@ -109,6 +132,7 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser)
               <ThemeIcon theme={theme} />
             </button>
           </div>
+          <p className="login-card-kicker">{t('loginCardKicker')}</p>
           <h1 className="login-form-title">{t('login')}</h1>
           <p className="page-desc">{t('loginDesc')}</p>
           <form onSubmit={onSubmit} className="login-form">
@@ -150,6 +174,27 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser)
             <button type="submit" disabled={busy} className="btn btn-primary w-full">
               {busy ? t('loggingIn') : t('login')}
             </button>
+            {showcase.showcase && showcase.accounts?.length ? (
+              <div className="login-showcase">
+                <p className="page-desc">{t('showcaseLoginHint')}</p>
+                <div className="login-showcase-accounts">
+                  {showcase.accounts.map((account) => (
+                    <button
+                      key={account.username}
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setUsername(account.username)
+                        setPassword(account.password)
+                        setErr('')
+                      }}
+                    >
+                      {t('showcaseUseAccount')} {account.username}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </form>
         </div>
       </div>

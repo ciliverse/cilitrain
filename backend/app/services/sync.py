@@ -21,7 +21,10 @@ from app.services.artifacts import (
     set_harvest_status,
 )
 from app.services.cluster.direct import DirectKube
+from app.services.inference import ensure_delivered
+from app.services.models import model_dir
 from app.services.metrics import parse_log_metrics, save_metrics
+from app.services.training import resume_dir
 
 
 def derive_status(job: Any, snap: dict[str, Any]) -> tuple[str, str | None]:
@@ -60,7 +63,13 @@ def derive_status(job: Any, snap: dict[str, Any]) -> tuple[str, str | None]:
 TERMINAL = frozenset({"succeeded", "failed", "timeout", "cancelled"})
 
 
-def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[str, Any]]:
+def sync_run(
+    session: Session,
+    run: Run,
+    kube: DirectKube,
+    *,
+    harvest: bool = True,
+) -> tuple[Run, dict[str, Any]]:
     snap: dict[str, Any] = {
         "pod_name": None,
         "pod_phase": None,
@@ -90,6 +99,18 @@ def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[st
         return run, snap
 
     snap = kube.pod_snapshot(run.namespace, run.id)
+    source_dir = None
+    if getattr(run, "kind", "train") == "infer" and run.model_id:
+        source_dir = model_dir(run.model_id)
+    elif getattr(run, "resume_from", None):
+        source_dir = resume_dir(run.id)
+    if source_dir is not None:
+        delivery_err = ensure_delivered(run, kube, snap, source_dir)
+        if delivery_err:
+            run.error_message = delivery_err
+            session.add(run)
+            session.commit()
+            session.refresh(run)
     new_status, err = derive_status(job, snap)
 
     changed = False
@@ -108,7 +129,12 @@ def sync_run(session: Session, run: Run, kube: DirectKube) -> tuple[Run, dict[st
         session.refresh(run)
 
     # Harvest while Pod still Running (hold window after .cilitrain-done).
-    if run.status in ("running", "succeeded", "failed", "timeout") and snap.get("pod_name"):
+    # Skip on GET /runs so the detail page can paint from DB without exec/logs.
+    if (
+        harvest
+        and run.status in ("running", "succeeded", "failed", "timeout")
+        and snap.get("pod_name")
+    ):
         phase = (snap.get("pod_phase") or "").lower()
         can_exec = phase == "running"
         out_path = run.output_path or "/output"

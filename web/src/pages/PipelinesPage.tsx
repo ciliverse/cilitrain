@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Cluster, type Pipeline, type Template } from '../api'
+import { api, fetchShowcase, type Cluster, type Pipeline, type Template } from '../api'
 import StatusBadge from '../components/StatusBadge'
 import { formatApiMessage, useI18n } from '../i18n'
 
@@ -11,14 +11,21 @@ export default function PipelinesPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [name, setName] = useState('demo-pipeline')
   const [clusterId, setClusterId] = useState('')
+  const [showcaseOn, setShowcaseOn] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function refresh() {
-    const [ps, cs, ts] = await Promise.all([api.pipelines(), api.clusters(), api.templates()])
+    const [ps, cs, ts, sc] = await Promise.all([
+      api.pipelines(),
+      api.clusters(),
+      api.templates(),
+      fetchShowcase(),
+    ])
     setPipelines(ps)
     setClusters(cs)
     setTemplates(ts)
+    setShowcaseOn(sc.showcase)
     if (!clusterId && cs[0]) setClusterId(cs[0].id)
   }
 
@@ -96,36 +103,42 @@ export default function PipelinesPage() {
         </p>
       )}
 
-      <form onSubmit={onCreate} className="panel panel-pad pipe-create">
-        <label className="label">
-          {t('pipelineName')}
-          <input
-            className="field"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <label className="label">
-          {t('cluster')}
-          <select
-            className="field"
-            value={clusterId}
-            onChange={(e) => setClusterId(e.target.value)}
-            required
-          >
-            {clusters.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" disabled={!clusterId || busy || clusters.length === 0} className="btn btn-primary">
-          {busy ? t('pipeCreating') : t('createPipeline')}
-        </button>
-        <p className="pipe-create-hint">{t('pipeStepsHint')}</p>
-      </form>
+      {showcaseOn ? (
+        <section className="panel panel-pad">
+          <p className="text-sm text-[var(--muted)]">{t('showcasePipelineNote')}</p>
+        </section>
+      ) : (
+        <form onSubmit={onCreate} className="panel panel-pad pipe-create">
+          <label className="label">
+            {t('pipelineName')}
+            <input
+              className="field"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </label>
+          <label className="label">
+            {t('cluster')}
+            <select
+              className="field"
+              value={clusterId}
+              onChange={(e) => setClusterId(e.target.value)}
+              required
+            >
+              {clusters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" disabled={!clusterId || busy || clusters.length === 0} className="btn btn-primary">
+            {busy ? t('pipeCreating') : t('createPipeline')}
+          </button>
+          <p className="pipe-create-hint">{t('pipeStepsHint')}</p>
+        </form>
+      )}
 
       {pipelines.length === 0 ? (
         <div className="empty-state">

@@ -21,21 +21,43 @@ def test_parse_memory():
     assert parse_memory_gi("512Mi") == 0.5
 
 
+def _tiny_job(**kwargs):
+    body = dict(
+        run_id="11111111-1111-1111-1111-111111111111",
+        name="t",
+        namespace="default",
+        template="custom",
+        image="python:3.12-slim",
+        command=["python"],
+        args=[],
+        cpu="1",
+        memory="1Gi",
+        timeout_seconds=600,
+        guardrails=Guardrails(),
+    )
+    body.update(kwargs)
+    return build_job(**body)
+
+
+def test_default_guardrails_allow_8c_16g():
+    job = _tiny_job(cpu="8", memory="16Gi")
+    res = job["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+    assert res["cpu"] == "8"
+    assert res["memory"] == "16Gi"
+
+
+def test_default_guardrails_reject_over_ceiling():
+    with pytest.raises(HTTPException) as ei:
+        _tiny_job(cpu="9", memory="1Gi")
+    assert ei.value.status_code == 400
+    with pytest.raises(HTTPException) as ei:
+        _tiny_job(cpu="1", memory="17Gi")
+    assert ei.value.status_code == 400
+
+
 def test_guardrail_cpu():
     with pytest.raises(HTTPException) as ei:
-        build_job(
-            run_id="11111111-1111-1111-1111-111111111111",
-            name="t",
-            namespace="default",
-            template="custom",
-            image="python:3.12-slim",
-            command=["python"],
-            args=[],
-            cpu="4",
-            memory="1Gi",
-            timeout_seconds=600,
-            guardrails=Guardrails(),
-        )
+        _tiny_job(cpu="4", memory="1Gi", guardrails=Guardrails(max_cpu=2.0, max_memory_gi=4.0))
     assert ei.value.status_code == 400
 
 

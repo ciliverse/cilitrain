@@ -13,8 +13,9 @@ class SupportsListNodeAllocatable(Protocol):
     def list_node_allocatable(self) -> list[dict[str, Any]]: ...
 
 
-def cluster_has_allocatable_gpu(nodes: list[dict[str, Any]]) -> bool:
-    """True if any node reports allocatable nvidia.com/gpu > 0."""
+def count_allocatable_gpu(nodes: list[dict[str, Any]]) -> int:
+    """Sum nvidia.com/gpu allocatable across nodes. Unknown/invalid values count as 0."""
+    total = 0
     for node in nodes:
         status = node.get("status") or {}
         allocatable = status.get("allocatable") or {}
@@ -22,11 +23,15 @@ def cluster_has_allocatable_gpu(nodes: list[dict[str, Any]]) -> bool:
         if raw is None:
             continue
         try:
-            if int(str(raw).strip()) > 0:
-                return True
+            total += max(0, int(str(raw).strip()))
         except ValueError:
             continue
-    return False
+    return total
+
+
+def cluster_has_allocatable_gpu(nodes: list[dict[str, Any]]) -> bool:
+    """True if any node reports allocatable nvidia.com/gpu > 0."""
+    return count_allocatable_gpu(nodes) > 0
 
 
 def assert_cluster_has_gpu(kube: SupportsListNodeAllocatable, *, skip: bool = False) -> None:

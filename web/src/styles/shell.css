@@ -4,6 +4,15 @@
   Motion: transform/opacity only, 150-250ms. No transition:all.
 */
 
+.showcase-banner {
+  padding: 0.45rem 1rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--warning, #e8a317) 18%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+
 .app-header .cluster-chip {
   max-width: 16rem;
   padding: 0.18rem 0.55rem 0.18rem 0.4rem;
@@ -127,6 +136,7 @@
 
 .spec-wide {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.8rem;
 }
 
@@ -163,6 +173,23 @@
   margin-bottom: 0.65rem;
   padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--line-subtle);
+}
+
+.script-editor {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--code-bg);
+}
+
+.script-editor .cm-editor {
+  background: transparent;
+}
+
+.script-editor .cm-gutters {
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--line);
+  color: var(--muted-2);
 }
 
 .spec-form-foot {

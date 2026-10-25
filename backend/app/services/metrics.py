@@ -15,12 +15,38 @@ LINE_RE = re.compile(
 )
 KV_RE = re.compile(r"([a-zA-Z_][\w]*)=([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)")
 SCORE_RE = re.compile(r"\bscore[=:\s]+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)", re.IGNORECASE)
+# Platform banners and pip/python noise carry key=value pairs that are not metrics.
+NOISE_RE = re.compile(r"^\s*(?:\[cilitrain\]|WARNING:|ERROR:|UserWarning:|Traceback)", re.IGNORECASE)
+# [cilitrain] epoch 1/8 step 10/40 loss 2.99  — live training curve, not a banner.
+PROGRESS_RE = re.compile(
+    r"epoch\s+(?P<epoch>\d+)\s*/\s*(?P<epochs>\d+)\s+"
+    r"step\s+(?P<step>\d+)\s*/\s*(?P<steps>\d+)\s+"
+    r"loss\s+(?P<loss>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)",
+    re.IGNORECASE,
+)
 
 
 def parse_log_metrics(logs: str) -> list[dict[str, Any]]:
     series: list[dict[str, Any]] = []
     for line in logs.splitlines():
         content = re.sub(r"^\S+\s+", "", line) if re.match(r"^\d{4}-", line) else line
+        prog = PROGRESS_RE.search(content)
+        if prog:
+            epoch = int(prog.group("epoch"))
+            step = int(prog.group("step"))
+            steps = max(1, int(prog.group("steps")))
+            series.append(
+                {
+                    "epoch": epoch,
+                    "step": step,
+                    "steps": steps,
+                    "loss": float(prog.group("loss")),
+                    "x": round(epoch - 1 + step / steps, 4),
+                }
+            )
+            continue
+        if NOISE_RE.match(content):
+            continue
         m = LINE_RE.search(content)
         if not m:
             # bare score lines only if we have no epoch series yet — handled later
@@ -36,15 +62,31 @@ def parse_log_metrics(logs: str) -> list[dict[str, Any]]:
                 point[k] = float(v)
             except ValueError:
                 continue
+        if point.get("epoch") is not None and "x" not in point:
+            point["x"] = float(point["epoch"])
         if point:
             series.append(point)
     return series
 
 
 def _dedupe_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Prefer one point per epoch; drop duplicate history+log merges."""
+    """Keep step-level points; otherwise one row per epoch."""
     if not series:
         return []
+    if any(isinstance(p.get("step"), (int, float)) for p in series):
+        out: list[dict[str, Any]] = []
+        seen: set[tuple] = set()
+        for pt in series:
+            key = (
+                int(pt["epoch"]) if "epoch" in pt else None,
+                int(pt["step"]) if "step" in pt else None,
+                round(float(pt["x"]), 4) if "x" in pt else None,
+            )
+            if key in seen and "step" in pt:
+                continue
+            seen.add(key)
+            out.append(pt)
+        return [p for p in out if "loss" in p or "val_loss" in p or "acc" in p]
     by_epoch: dict[int, dict[str, Any]] = {}
     no_epoch: list[dict[str, Any]] = []
     for pt in series:
@@ -64,6 +106,26 @@ def _dedupe_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if out and out[-1] == pt:
             continue
         out.append(pt)
+    return out
+
+
+def _attach_epoch_values(steps: list[dict[str, Any]], hist: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy epoch-only values (val_loss, acc) onto the last logged step of that epoch."""
+    by_epoch = {int(p["epoch"]): p for p in hist if isinstance(p.get("epoch"), (int, float))}
+    if not by_epoch:
+        return steps
+    last_idx: dict[int, int] = {}
+    for i, pt in enumerate(steps):
+        if isinstance(pt.get("epoch"), (int, float)):
+            last_idx[int(pt["epoch"])] = i
+    out = [dict(p) for p in steps]
+    for ep, i in last_idx.items():
+        h = by_epoch.get(ep)
+        if not h:
+            continue
+        for k, v in h.items():
+            if k not in out[i] and isinstance(v, (int, float)):
+                out[i][k] = v
     return out
 
 
@@ -101,11 +163,16 @@ def build_metrics_view(run_id: str, logs: str = "") -> dict[str, Any]:
     log_series = parse_log_metrics(logs)
     hist = final.get("history") if isinstance(final, dict) else None
 
-    # Prefer structured history from metrics.json; fall back to logs (avoid concatenating both).
+    log_pts = _dedupe_series(log_series)
     if isinstance(hist, list) and hist:
-        series = _dedupe_series([p for p in hist if isinstance(p, dict)])
+        hist_pts = _dedupe_series([p for p in hist if isinstance(p, dict)])
+        # Live step logs are denser than epoch history; keep the longer series.
+        if len(log_pts) > len(hist_pts):
+            series = _attach_epoch_values(log_pts, hist_pts)
+        else:
+            series = hist_pts
     else:
-        series = _dedupe_series(log_series)
+        series = log_pts
 
     summary: dict[str, Any] = {}
     if isinstance(final, dict):
@@ -115,14 +182,17 @@ def build_metrics_view(run_id: str, logs: str = "") -> dict[str, Any]:
     if series:
         last = series[-1]
         for k, v in last.items():
-            if k != "epoch" and isinstance(v, (int, float)) and k not in summary:
+            if k not in {"epoch", "step", "steps", "x"} and isinstance(v, (int, float)) and k not in summary:
                 summary[k] = v
 
     # Chart keys: prefer loss/acc; hide redundant score when acc exists
+    skip_chart = {"epoch", "step", "steps", "x"}
     raw_keys = sorted(
-        {k for pt in series for k in pt.keys() if k != "epoch" and isinstance(pt.get(k), (int, float))}
+        {k for pt in series for k in pt.keys() if k not in skip_chart and isinstance(pt.get(k), (int, float))}
     )
     if "acc" in raw_keys and "score" in raw_keys:
+        raw_keys = [k for k in raw_keys if k != "score"]
+    if "loss" in raw_keys and "score" in raw_keys:
         raw_keys = [k for k in raw_keys if k != "score"]
     # stable preferred order
     preferred = ["loss", "acc", "accuracy", "score"]
@@ -132,11 +202,32 @@ def build_metrics_view(run_id: str, logs: str = "") -> dict[str, Any]:
         "summary": summary,
         "series": series,
         "chart_keys": chart_keys,
-        "x_key": "epoch" if any("epoch" in p for p in series) else "index",
+        "x_key": (
+            "x"
+            if any(isinstance(p.get("x"), (int, float)) for p in series)
+            else "epoch"
+            if any("epoch" in p for p in series)
+            else "index"
+        ),
         "final": final,
         "artifacts": list_local_artifacts(run_id),
         "harvest": get_harvest_status(run_id),
     }
+
+
+def trend_from_view(view: dict[str, Any], max_points: int = 32) -> dict[str, Any] | None:
+    """Downsampled primary curve (loss first) for list sparklines."""
+    keys = view.get("chart_keys") or []
+    if not keys:
+        return None
+    key = keys[0]
+    vals = [float(p[key]) for p in view.get("series") or [] if isinstance(p.get(key), (int, float))]
+    if len(vals) < 2:
+        return None
+    if len(vals) > max_points:
+        stride = (len(vals) - 1) / (max_points - 1)
+        vals = [vals[round(i * stride)] for i in range(max_points)]
+    return {"key": key, "points": vals, "last": vals[-1]}
 
 
 def compare_metrics(views: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:

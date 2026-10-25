@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../i18n'
 import '../styles/ops.css'
 
@@ -73,7 +74,7 @@ export default function ConfirmDialog({
       : 'ops-confirm-tone bg-[var(--warn)]/15 text-[var(--warn)]'
   const confirmBtn = tone === 'danger' ? 'btn btn-danger btn-sm' : 'btn btn-warn btn-sm'
 
-  return (
+  return createPortal(
     <div
       className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4"
       data-open={visible}
@@ -132,6 +133,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
