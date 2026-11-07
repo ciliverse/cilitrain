@@ -20,6 +20,8 @@ from app.api.schemas import (
     ClusterCreate,
     ClusterOut,
     ClusterProbeOut,
+    ClusterUpdate,
+    TrainingWorkloadsOut,
     LogsOut,
     PipelineCreate,
     PipelineOut,
@@ -51,9 +53,11 @@ from app.services.job_builder import (
     Guardrails,
     build_job,
     build_script_configmap,
+    disambiguate_job_name,
     dumps_command,
     job_name_for,
     loads_command,
+    normalize_scheduler,
     script_configmap_name,
     validate_resources,
 )
@@ -148,12 +152,12 @@ _EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 _BOOTSTRAP: dict[str, list[str]] = {
     "torch-cpu": [
         "echo '[cilitrain] installing numpy + torch (cpu)...'",
-        "pip install -q numpy",
-        "pip install -q torch --index-url https://download.pytorch.org/whl/cpu",
+        "pip install -i https://mirrors.aliyun.com/pypi/simple/ --progress-bar off numpy",
+        "pip install -i https://mirrors.aliyun.com/pypi/simple/ -f https://mirrors.aliyun.com/pytorch-wheels/cpu --progress-bar off torch",
     ],
     "sklearn": [
         "echo '[cilitrain] installing scikit-learn...'",
-        "pip install -q scikit-learn==1.6.1",
+        "pip install -i https://mirrors.aliyun.com/pypi/simple/ --progress-bar off 'scikit-learn==1.6.1'",
     ],
 }
 
@@ -364,6 +368,7 @@ def _run_out(
         queue_position=_queue_position(run),
         queue_reason=run.queue_reason if run.status == QUEUED else None,
         priority=int(run.priority or 0),
+        scheduler=getattr(run, "scheduler", "") or "",
         not_before=run.not_before if run.status == QUEUED else None,
         started_at=run.started_at,
         created_at=run.created_at,
@@ -417,12 +422,14 @@ def list_clusters(
 
 def _probe_cluster(c: Cluster) -> ClusterProbeOut:
     if getattr(c, "simulated", False) or is_showcase():
+        from app.services.showcase import showcase_nodes
+
         return ClusterProbeOut(
             cluster_id=c.id,
             name=c.name,
             reachable=True,
             message="simulated",
-            gpu_allocatable=0,
+            gpu_allocatable=sum(int(node.get("gpu") or 0) for node in showcase_nodes()),
         )
     kube = DirectKube(c)
     try:
@@ -462,6 +469,27 @@ def probe_cluster(
     return _probe_cluster(c)
 
 
+@router.get("/clusters/{cluster_id}/workloads", response_model=TrainingWorkloadsOut)
+def cluster_workloads(
+    cluster_id: str,
+    cu: Annotated[CurrentUser, Depends(get_current_user)],
+    session: Session = Depends(get_session),
+) -> TrainingWorkloadsOut:
+    c = session.get(Cluster, cluster_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    allowed = visible_cluster_ids(session, cu.user)
+    if allowed is not None and c.id not in allowed:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    if getattr(c, "simulated", False):
+        from app.services.showcase import showcase_workloads
+
+        payload = showcase_workloads(session)
+        return TrainingWorkloadsOut(cluster_id=c.id, items=payload["items"], nodes=payload["nodes"])
+    payload = DirectKube(c).list_training_workloads()
+    return TrainingWorkloadsOut(cluster_id=c.id, items=payload["items"], nodes=payload["nodes"])
+
+
 @router.post("/clusters", response_model=ClusterOut)
 def create_cluster(
     body: ClusterCreate,
@@ -481,6 +509,49 @@ def create_cluster(
     )
     # validate load
     DirectKube(c)
+    session.add(c)
+    session.commit()
+    session.refresh(c)
+    return _cluster_out(c, admin=True)
+
+
+@router.patch("/clusters/{cluster_id}", response_model=ClusterOut)
+def update_cluster(
+    cluster_id: str,
+    body: ClusterUpdate,
+    cu: Annotated[CurrentUser, Depends(require_admin)],
+    session: Session = Depends(get_session),
+) -> ClusterOut:
+    _ = cu
+    refuse("showcase mode does not accept a kubeconfig")
+    c = session.get(Cluster, cluster_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    if getattr(c, "simulated", False):
+        refuse("showcase cluster cannot be edited")
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required")
+        c.name = name[:80]
+    if "context" in data:
+        c.context = (data["context"] or "").strip() or None
+    if "cilikube_base_url" in data:
+        c.cilikube_base_url = (data["cilikube_base_url"] or "").strip() or None
+    kube_changed = False
+    content = (data.get("kubeconfig_content") or "").strip()
+    path = (data.get("kubeconfig_path") or "").strip()
+    if "kubeconfig_content" in data and content:
+        c.kubeconfig_content = content
+        kube_changed = True
+    if "kubeconfig_path" in data and path:
+        c.kubeconfig_path = path
+        kube_changed = True
+    if kube_changed or "context" in data:
+        DirectKube(c)
     session.add(c)
     session.commit()
     session.refresh(c)
@@ -793,6 +864,7 @@ def _launch(
         resume_from=body.resume_from,
         sweep_id=sweep_id,
         priority=body.priority,
+        scheduler=normalize_scheduler(body.scheduler),
         not_before=check_start_at(body.start_at),
     )
     session.add(run)
@@ -870,6 +942,26 @@ def active_in(session: Session, namespace: str, kube: DirectKube | None) -> int:
     return count_active(session, namespace) if kube is None else kube.count_active_jobs(namespace)
 
 
+def _allocate_job_name(session: Session, run: Run) -> str:
+    """Use the training name. A second run with the same name gets a 4-char id suffix."""
+    base = job_name_for(run.id, run.name)
+    taken = {
+        row.job_name
+        for row in session.exec(
+            select(Run).where(Run.namespace == run.namespace, Run.id != run.id)
+        ).all()
+        if row.job_name
+    }
+    if base not in taken:
+        return base
+    alt = disambiguate_job_name(base, run.id)
+    n = 2
+    while alt in taken and n < 8:
+        alt = disambiguate_job_name(base, f"{run.id}-{n}")
+        n += 1
+    return alt
+
+
 def submit_run(
     session: Session,
     run: Run,
@@ -887,9 +979,11 @@ def submit_run(
     gpu_count = int(run.gpu_count or 0)
     run.command = dumps_command(command)
     run.args = dumps_command(args)
+    run.job_name = _allocate_job_name(session, run)
     job = build_job(
         run_id=run.id,
         name=run.name,
+        job_name=run.job_name,
         namespace=run.namespace,
         template=run.template,
         image=run.image,
@@ -907,6 +1001,7 @@ def submit_run(
         files=files,
         model_mount=model_mount,
         extra_env=extra_env,
+        scheduler=run.scheduler,
     )
     run.job_yaml = yaml.safe_dump(job, sort_keys=False)
     run.simulated = kube is None
@@ -932,7 +1027,7 @@ def _start_job(
     files: dict[str, str],
 ) -> RunOut:
     now = datetime.now(timezone.utc)
-    run.job_name = job_name_for(run.id)
+    run.job_name = str(job["metadata"]["name"])
     run.started_at = now
     run.status = "pending"
     run.queue_reason = None
@@ -952,12 +1047,13 @@ def _start_job(
                     namespace=run.namespace,
                     template=run.template,
                     files=files,
+                    job_name=run.job_name,
                 )
             )
         created = kube.create_job(job)
         if files:
             kube.own_configmap(
-                run.namespace, script_configmap_name(run.id), created
+                run.namespace, script_configmap_name(run.job_name), created
             )
     except HTTPException as exc:
         run.status = "failed"
@@ -1159,7 +1255,7 @@ def cancel_run(
     if run.job_name:
         # Prefer hard stop: delete Job (cascade pods). Suspend alone can leave orphan state.
         kube.delete_job(run.namespace, run.job_name)
-        kube.delete_configmap(run.namespace, script_configmap_name(run.id))
+        kube.delete_configmap(run.namespace, script_configmap_name(run.job_name))
 
     run.status = "cancelled"
     run.error_message = run.error_message or "cancelled by user"
@@ -1197,7 +1293,7 @@ def cleanup_run(
         raise HTTPException(status_code=404, detail="cluster not found")
     kube = DirectKube(cluster)
     kube.delete_job(run.namespace, run.job_name)
-    kube.delete_configmap(run.namespace, script_configmap_name(run.id))
+    kube.delete_configmap(run.namespace, script_configmap_name(run.job_name))
     return CleanupOut(status="ok", cleaned=True)
 
 
@@ -1225,7 +1321,7 @@ def delete_run(
         try:
             kube = DirectKube(cluster)
             kube.delete_job(run.namespace, run.job_name)
-            kube.delete_configmap(run.namespace, script_configmap_name(run.id))
+            kube.delete_configmap(run.namespace, script_configmap_name(run.job_name))
         except HTTPException:
             pass
     session.delete(run)

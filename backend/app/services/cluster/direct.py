@@ -532,3 +532,486 @@ class DirectKube:
             elif not st.completion_time and not (st.failed or 0) and not (st.succeeded or 0):
                 n += 1
         return n
+
+    def list_training_workloads(self, limit: int = 40) -> dict[str, Any]:
+        """Jobs and inference Deployments this platform submitted, plus a short node list."""
+        try:
+            res = self.batch.list_job_for_all_namespaces(
+                label_selector="cilitrain.io/managed-by=cilitrain",
+                _request_timeout=KUBE_READ_TIMEOUT,
+            )
+        except ApiException as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"list jobs failed: {exc.status} {exc.reason}",
+            ) from exc
+        jobs = [job_workload(job) for job in (res.items or [])]
+        deploys = [deployment_workload(dep) for dep in _safe_items(self._list_platform_deployments)]
+        pods = index_pods(_safe_items(self._list_platform_pods))
+        rows = jobs + deploys
+        for row in rows:
+            row["pods"] = pods_for(pods, row["namespace"], row["name"], row.get("run_id"), row.get("service_id"))
+        rows.sort(key=lambda row: row["created_at"].timestamp() if row["created_at"] else 0, reverse=True)
+        for ns in {row["namespace"] for row in rows if row.get("namespace")}:
+            events = [
+                event_brief(ev)
+                for ev in _safe_items(lambda ns=ns: self.core.list_namespaced_event(namespace=ns, limit=300, _request_timeout=KUBE_READ_TIMEOUT))
+            ]
+            attach_events(rows, ns, events)
+        nodes = [node_brief(node) for node in _safe_items(self._list_nodes)]
+        nodes.sort(key=lambda node: node["name"])
+        return {"items": rows[:limit], "nodes": nodes[:40]}
+
+    def _list_platform_pods(self) -> Any:
+        return self.core.list_pod_for_all_namespaces(
+            label_selector="cilitrain.io/managed-by=cilitrain",
+            _request_timeout=KUBE_READ_TIMEOUT,
+        )
+
+    def _list_platform_deployments(self) -> Any:
+        return self.apps.list_deployment_for_all_namespaces(
+            label_selector="cilitrain.io/managed-by=cilitrain",
+            _request_timeout=KUBE_READ_TIMEOUT,
+        )
+
+    def _list_nodes(self) -> Any:
+        return self.core.list_node(_request_timeout=KUBE_READ_TIMEOUT)
+
+    def list_node_usage(self) -> list[dict[str, str]]:
+        """metrics-server node usage. Empty when the API is missing."""
+        try:
+            raw = client.CustomObjectsApi(self._api_client).list_cluster_custom_object(
+                "metrics.k8s.io",
+                "v1beta1",
+                "nodes",
+                _request_timeout=KUBE_READ_TIMEOUT,
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        out: list[dict[str, str]] = []
+        for item in raw.get("items") or []:
+            meta = item.get("metadata") or {}
+            usage = item.get("usage") or {}
+            name = str(meta.get("name") or "")
+            if not name:
+                continue
+            out.append(
+                {
+                    "name": name,
+                    "cpu": str(usage.get("cpu") or ""),
+                    "memory": str(usage.get("memory") or ""),
+                }
+            )
+        return out
+
+    def list_platform_pod_usage(self) -> list[dict[str, Any]]:
+        """CPU/memory for pods this platform created. Joined by name within each namespace."""
+        pods = _safe_items(self._list_platform_pods)
+        by_ns: dict[str, list[Any]] = {}
+        for pod in pods:
+            ns = getattr(getattr(pod, "metadata", None), "namespace", None) or ""
+            by_ns.setdefault(ns, []).append(pod)
+        usage: dict[tuple[str, str], dict[str, str]] = {}
+        mapi = client.CustomObjectsApi(self._api_client)
+        for ns in by_ns:
+            if not ns:
+                continue
+            try:
+                listed = mapi.list_namespaced_custom_object(
+                    "metrics.k8s.io",
+                    "v1beta1",
+                    ns,
+                    "pods",
+                    _request_timeout=KUBE_READ_TIMEOUT,
+                )
+            except Exception:  # noqa: BLE001
+                continue
+            for item in listed.get("items") or []:
+                meta = item.get("metadata") or {}
+                name = str(meta.get("name") or "")
+                if name:
+                    usage[(ns, name)] = {
+                        "cpu": _sum_container_quantity(item, "cpu"),
+                        "memory": _sum_container_quantity(item, "memory"),
+                    }
+        rows: list[dict[str, Any]] = []
+        for pod in pods:
+            meta = getattr(pod, "metadata", None)
+            name = getattr(meta, "name", "") or ""
+            ns = getattr(meta, "namespace", "") or ""
+            labels = getattr(meta, "labels", None) or {}
+            got = usage.get((ns, name)) or {}
+            rows.append(
+                {
+                    "name": name,
+                    "namespace": ns,
+                    "run_id": labels.get("cilitrain.io/run") or "",
+                    "service_id": labels.get("cilitrain.io/service") or "",
+                    "cpu": got.get("cpu") or "",
+                    "memory": got.get("memory") or "",
+                }
+            )
+        return rows
+
+
+def _quantity_base(raw: str) -> tuple[float, str] | None:
+    text = raw.strip()
+    if not text:
+        return None
+    for suffix in ("Ki", "Mi", "Gi", "Ti", "n", "u", "m"):
+        if text.endswith(suffix):
+            try:
+                return float(text[: -len(suffix)]), suffix
+            except ValueError:
+                return None
+    try:
+        return float(text), ""
+    except ValueError:
+        return None
+
+
+def _sum_container_quantity(item: dict[str, Any], key: str) -> str:
+    """Sum container usage into one quantity string metrics-server would understand."""
+    total = 0.0
+    unit = ""
+    saw = False
+    for container in item.get("containers") or []:
+        parsed = _quantity_base(str((container.get("usage") or {}).get(key) or ""))
+        if parsed is None:
+            continue
+        value, suffix = parsed
+        if not saw:
+            unit = suffix
+        elif suffix != unit:
+            return ""
+        total += value
+        saw = True
+    if not saw:
+        return ""
+    if unit in {"n", "u", "m", ""}:
+        return f"{int(total)}{unit}" if unit else str(total)
+    if float(total).is_integer():
+        return f"{int(total)}{unit}"
+    return f"{total}{unit}"
+
+
+def _safe_items(fn: Any) -> list[Any]:
+    try:
+        res = fn()
+    except Exception:  # noqa: BLE001 — jobs already answered; pods/nodes are extra
+        log.warning("training workload extra list failed", exc_info=True)
+        return []
+    return list(getattr(res, "items", None) or [])
+
+
+def _requests_of(container: Any) -> dict[str, str]:
+    resources = getattr(container, "resources", None) if container else None
+    raw = getattr(resources, "requests", None) if resources else None
+    if not raw:
+        return {}
+    try:
+        return {str(key): str(val) for key, val in dict(raw).items() if val is not None}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _first_container(pod_spec: Any) -> Any:
+    containers = getattr(pod_spec, "containers", None) or []
+    return containers[0] if containers else None
+
+
+def _gpu_count(requests: dict[str, str], annotations: dict[str, str]) -> int:
+    raw = requests.get("nvidia.com/gpu") or annotations.get("cilitrain.io/gpu-count") or "0"
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
+def job_workload(job: Any) -> dict[str, Any]:
+    meta = job.metadata
+    st = job.status
+    spec = job.spec
+    labels = (getattr(meta, "labels", None) or {}) if meta else {}
+    ann = (getattr(meta, "annotations", None) or {}) if meta else {}
+    template = getattr(spec, "template", None) if spec else None
+    pod_spec = getattr(template, "spec", None) if template else None
+    container = _first_container(pod_spec)
+    requests = _requests_of(container)
+    active = int((getattr(st, "active", None) or 0) if st else 0)
+    succeeded = int((getattr(st, "succeeded", None) or 0) if st else 0)
+    failed = int((getattr(st, "failed", None) or 0) if st else 0)
+    message = None
+    finished = getattr(st, "completion_time", None) if st else None
+    for cond in (getattr(st, "conditions", None) or []) if st else []:
+        if getattr(cond, "status", None) == "True" and getattr(cond, "type", None) in ("Failed", "Complete"):
+            reason = getattr(cond, "reason", None) or ""
+            detail = getattr(cond, "message", None) or ""
+            message = f"{reason}: {detail}".strip(": ") or None
+            if finished is None:
+                finished = getattr(cond, "last_transition_time", None)
+            break
+    parallelism = int((getattr(spec, "parallelism", None) or 1) if spec else 1)
+    completions = int((getattr(spec, "completions", None) or parallelism) if spec else parallelism)
+    return {
+        "kind": "Job",
+        "name": getattr(meta, "name", "") or "",
+        "display_name": ann.get("cilitrain.io/display-name") or (getattr(meta, "name", "") or ""),
+        "namespace": getattr(meta, "namespace", "") or "",
+        "run_id": labels.get("cilitrain.io/run"),
+        "service_id": None,
+        "status": training_job_status(active, succeeded, failed),
+        "image": getattr(container, "image", "") or "",
+        "cpu": requests.get("cpu", ""),
+        "memory": requests.get("memory", ""),
+        "gpu": _gpu_count(requests, ann),
+        "scheduler": ann.get("cilitrain.io/scheduler") or "",
+        "template": labels.get("cilitrain.io/template") or "",
+        "message": message,
+        "active": active,
+        "succeeded": succeeded,
+        "failed": failed,
+        "created_at": getattr(meta, "creation_timestamp", None) if meta else None,
+        "started_at": getattr(st, "start_time", None) if st else None,
+        "finished_at": finished,
+        "parallelism": parallelism,
+        "completions": completions,
+        "backoff_limit": int((getattr(spec, "backoff_limit", None) or 0) if spec else 0),
+        "deadline_seconds": getattr(spec, "active_deadline_seconds", None) if spec else None,
+        "restart_policy": getattr(pod_spec, "restart_policy", "") or "",
+        "events": [],
+        "pods": [],
+    }
+
+
+def deployment_workload(dep: Any) -> dict[str, Any]:
+    meta = dep.metadata
+    spec = dep.spec
+    st = dep.status
+    labels = (getattr(meta, "labels", None) or {}) if meta else {}
+    ann = (getattr(meta, "annotations", None) or {}) if meta else {}
+    template = getattr(spec, "template", None) if spec else None
+    container = _first_container(getattr(template, "spec", None) if template else None)
+    requests = _requests_of(container)
+    desired = int((getattr(spec, "replicas", None) or 0) if spec else 0)
+    ready = int((getattr(st, "ready_replicas", None) or 0) if st else 0)
+    if desired <= 0:
+        status = "stopped"
+    elif ready >= desired:
+        status = "running"
+    else:
+        status = "pending"
+    return {
+        "kind": "Deployment",
+        "name": getattr(meta, "name", "") or "",
+        "display_name": ann.get("cilitrain.io/display-name") or (getattr(meta, "name", "") or ""),
+        "namespace": getattr(meta, "namespace", "") or "",
+        "run_id": None,
+        "service_id": labels.get("cilitrain.io/service"),
+        "status": status,
+        "image": getattr(container, "image", "") or "",
+        "cpu": requests.get("cpu", ""),
+        "memory": requests.get("memory", ""),
+        "gpu": _gpu_count(requests, ann),
+        "scheduler": "",
+        "template": labels.get("cilitrain.io/template") or "",
+        "message": None,
+        "active": ready,
+        "succeeded": desired,
+        "failed": 0,
+        "created_at": getattr(meta, "creation_timestamp", None) if meta else None,
+        "started_at": None,
+        "finished_at": None,
+        "parallelism": desired,
+        "completions": desired,
+        "backoff_limit": 0,
+        "deadline_seconds": None,
+        "restart_policy": "",
+        "events": [],
+        "pods": [],
+    }
+
+
+def pod_workload(pod: Any) -> dict[str, Any]:
+    meta = pod.metadata
+    st = pod.status
+    spec = pod.spec
+    reason = None
+    restarts = 0
+    ready = False
+    started = getattr(st, "start_time", None) if st else None
+    container = _first_container(spec)
+    requests = _requests_of(container)
+    image = getattr(container, "image", "") or ""
+    statuses = (getattr(st, "container_statuses", None) or []) if st else []
+    if statuses:
+        cs = statuses[0]
+        restarts = int(getattr(cs, "restart_count", None) or 0)
+        ready = bool(getattr(cs, "ready", False))
+        image = getattr(cs, "image", None) or image
+        state = getattr(cs, "state", None)
+        waiting = getattr(state, "waiting", None) if state else None
+        terminated = getattr(state, "terminated", None) if state else None
+        running = getattr(state, "running", None) if state else None
+        if waiting is not None:
+            reason = getattr(waiting, "reason", None)
+        elif terminated is not None:
+            reason = getattr(terminated, "reason", None)
+        elif running is not None and getattr(running, "started_at", None):
+            started = running.started_at
+    return {
+        "name": getattr(meta, "name", "") or "",
+        "phase": (getattr(st, "phase", None) if st else None) or "Unknown",
+        "node": getattr(spec, "node_name", None) if spec else None,
+        "restarts": restarts,
+        "reason": reason,
+        "started_at": started,
+        "ip": getattr(st, "pod_ip", None) if st else None,
+        "qos": getattr(st, "qos_class", None) if st else None,
+        "ready": ready,
+        "image": image,
+        "cpu": requests.get("cpu", ""),
+        "memory": requests.get("memory", ""),
+    }
+
+
+def index_pods(pods: list[Any]) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for pod in pods:
+        meta = pod.metadata
+        labels = (getattr(meta, "labels", None) or {}) if meta else {}
+        ns = (getattr(meta, "namespace", None) or "") if meta else ""
+        brief = pod_workload(pod)
+        name = labels.get("job-name") or labels.get("app.kubernetes.io/instance") or ""
+        if name:
+            grouped.setdefault((ns, name), []).append(brief)
+        run_id = labels.get("cilitrain.io/run")
+        if run_id:
+            grouped.setdefault((ns, f"run:{run_id}"), []).append(brief)
+        service_id = labels.get("cilitrain.io/service")
+        if service_id:
+            grouped.setdefault((ns, f"svc:{service_id}"), []).append(brief)
+    return grouped
+
+
+def pods_for(
+    grouped: dict[tuple[str, str], list[dict[str, Any]]],
+    namespace: str,
+    name: str,
+    run_id: str | None,
+    service_id: str | None,
+) -> list[dict[str, Any]]:
+    found = grouped.get((namespace, name))
+    if found:
+        return found
+    if run_id and grouped.get((namespace, f"run:{run_id}")):
+        return grouped[(namespace, f"run:{run_id}")]
+    if service_id and grouped.get((namespace, f"svc:{service_id}")):
+        return grouped[(namespace, f"svc:{service_id}")]
+    return []
+
+
+def node_brief(node: Any) -> dict[str, Any]:
+    meta = node.metadata
+    st = node.status
+    ready = False
+    for cond in (getattr(st, "conditions", None) or []) if st else []:
+        if getattr(cond, "type", None) == "Ready":
+            ready = getattr(cond, "status", None) == "True"
+    alloc: dict[str, str] = {}
+    raw = getattr(st, "allocatable", None) if st else None
+    if raw:
+        try:
+            alloc = {str(key): str(val) for key, val in dict(raw).items() if val is not None}
+        except (TypeError, ValueError):
+            alloc = {}
+    gpu_raw = alloc.get("nvidia.com/gpu") or "0"
+    try:
+        gpu = int(float(gpu_raw))
+    except (TypeError, ValueError):
+        gpu = 0
+    labels = (getattr(meta, "labels", None) or {}) if meta else {}
+    roles = [key.split("/", 1)[1] for key in labels if key.startswith("node-role.kubernetes.io/")]
+    if not roles and labels.get("kubernetes.io/role"):
+        roles = [str(labels["kubernetes.io/role"])]
+    info = getattr(st, "node_info", None) if st else None
+    ip = ""
+    for addr in (getattr(st, "addresses", None) or []) if st else []:
+        if getattr(addr, "type", None) == "InternalIP":
+            ip = getattr(addr, "address", "") or ""
+            break
+    pressure_conds = (getattr(st, "conditions", None) or []) if st else []
+    pressure = [
+        getattr(cond, "type", "")
+        for cond in pressure_conds
+        if getattr(cond, "type", None) in ("MemoryPressure", "DiskPressure", "PIDPressure")
+        and getattr(cond, "status", None) == "True"
+    ]
+    return {
+        "name": getattr(meta, "name", "") or "",
+        "ready": ready,
+        "cpu": alloc.get("cpu", ""),
+        "memory": alloc.get("memory", ""),
+        "gpu": gpu,
+        "roles": ",".join(role for role in roles if role),
+        "kubelet": getattr(info, "kubelet_version", "") or "",
+        "ip": ip,
+        "pressure": ",".join(item for item in pressure if item),
+    }
+
+
+def event_brief(ev: Any) -> dict[str, Any]:
+    involved = getattr(ev, "involved_object", None)
+    series = getattr(ev, "series", None)
+    count = getattr(ev, "count", None)
+    if count is None and series is not None:
+        count = getattr(series, "count", None)
+    when = (
+        getattr(ev, "last_timestamp", None)
+        or getattr(ev, "event_time", None)
+        or getattr(getattr(ev, "metadata", None), "creation_timestamp", None)
+    )
+    return {
+        "object_name": getattr(involved, "name", "") or "",
+        "type": getattr(ev, "type", "") or "",
+        "reason": getattr(ev, "reason", "") or "",
+        "message": (getattr(ev, "message", "") or "")[:400],
+        "count": int(count or 1),
+        "created_at": when,
+    }
+
+
+def attach_events(rows: list[dict[str, Any]], namespace: str, events: list[dict[str, Any]]) -> None:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for ev in events:
+        if ev.get("object_name"):
+            grouped.setdefault(ev["object_name"], []).append(ev)
+    for row in rows:
+        if row.get("namespace") != namespace:
+            continue
+        names = [row["name"], *[pod["name"] for pod in row.get("pods") or []]]
+        found: list[dict[str, Any]] = []
+        for name in names:
+            found.extend(grouped.get(name, []))
+        found.sort(key=lambda ev: ev["created_at"].timestamp() if ev["created_at"] else 0, reverse=True)
+        seen: set[tuple[str, str]] = set()
+        unique: list[dict[str, Any]] = []
+        for ev in found:
+            key = (ev.get("reason") or "", ev.get("message") or "")
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append({k: v for k, v in ev.items() if k != "object_name"})
+            if len(unique) >= 8:
+                break
+        row["events"] = unique
+
+
+def training_job_status(active: int, succeeded: int, failed: int) -> str:
+    if succeeded > 0:
+        return "succeeded"
+    if active > 0:
+        return "running"
+    if failed > 0:
+        return "failed"
+    return "pending"

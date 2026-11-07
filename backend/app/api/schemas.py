@@ -28,6 +28,14 @@ class ClusterCreate(BaseModel):
     cilikube_base_url: Optional[str] = None
 
 
+class ClusterUpdate(BaseModel):
+    name: Optional[str] = None
+    context: Optional[str] = None
+    kubeconfig_path: Optional[str] = None
+    kubeconfig_content: Optional[str] = None
+    cilikube_base_url: Optional[str] = None
+
+
 class ClusterOut(BaseModel):
     id: str
     name: str
@@ -46,6 +54,77 @@ class ClusterProbeOut(BaseModel):
     reachable: bool
     message: Optional[str] = None
     gpu_allocatable: Optional[int] = None
+
+
+class WorkloadEvent(BaseModel):
+    type: str = ""
+    reason: str = ""
+    message: str = ""
+    count: int = 1
+    created_at: Optional[UtcDateTime] = None
+
+
+class WorkloadPod(BaseModel):
+    name: str
+    phase: str
+    node: Optional[str] = None
+    restarts: int = 0
+    reason: Optional[str] = None
+    started_at: Optional[UtcDateTime] = None
+    ip: Optional[str] = None
+    qos: Optional[str] = None
+    ready: bool = False
+    image: str = ""
+    cpu: str = ""
+    memory: str = ""
+
+
+class TrainingWorkload(BaseModel):
+    kind: str = "Job"
+    name: str
+    display_name: str
+    namespace: str
+    run_id: Optional[str] = None
+    service_id: Optional[str] = None
+    status: str
+    image: str = ""
+    cpu: str = ""
+    memory: str = ""
+    gpu: int = 0
+    scheduler: str = ""
+    template: str = ""
+    message: Optional[str] = None
+    active: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    created_at: Optional[UtcDateTime] = None
+    started_at: Optional[UtcDateTime] = None
+    finished_at: Optional[UtcDateTime] = None
+    parallelism: int = 1
+    completions: int = 1
+    backoff_limit: int = 0
+    deadline_seconds: Optional[int] = None
+    restart_policy: str = ""
+    events: list[WorkloadEvent] = Field(default_factory=list)
+    pods: list[WorkloadPod] = Field(default_factory=list)
+
+
+class ClusterNodeBrief(BaseModel):
+    name: str
+    ready: bool = False
+    cpu: str = ""
+    memory: str = ""
+    gpu: int = 0
+    roles: str = ""
+    kubelet: str = ""
+    ip: str = ""
+    pressure: str = ""
+
+
+class TrainingWorkloadsOut(BaseModel):
+    cluster_id: str
+    items: list[TrainingWorkload] = Field(default_factory=list)
+    nodes: list[ClusterNodeBrief] = Field(default_factory=list)
 
 
 class TemplateOut(BaseModel):
@@ -85,6 +164,7 @@ class RunCreate(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     resume_from: Optional[str] = None
     priority: int = Field(default=0, ge=-1, le=1)
+    scheduler: str = ""
     start_at: Optional[datetime] = None
 
 
@@ -147,6 +227,7 @@ class RunOut(BaseModel):
     queue_position: Optional[int] = None
     queue_reason: Optional[str] = None
     priority: int = 0
+    scheduler: str = ""
     not_before: Optional[UtcDateTime] = None
     started_at: Optional[UtcDateTime] = None
     created_at: UtcDateTime
@@ -297,6 +378,11 @@ class ModelOut(BaseModel):
     infer: Optional[dict[str, Any]] = None
     infer_count: int = 0
     showcase_seed: bool = False
+    origin: str = "trained"
+    provider: Optional[str] = None
+    base_url: Optional[str] = None
+    upstream_model: Optional[str] = None
+    has_upstream_key: bool = False
     created_at: UtcDateTime
 
 
@@ -345,6 +431,8 @@ class ServiceOut(BaseModel):
     error_message: Optional[str] = None
     api_key_prefix: Optional[str] = None
     endpoint_path: str
+    protocol: str = "predict"
+    openai_path: str = "/v1"
     requests: int = 0
     errors: int = 0
     avg_latency_ms: Optional[float] = None
@@ -360,6 +448,23 @@ class ServiceKeyOut(BaseModel):
     """Returned once, when a service is created or its key is rotated."""
 
     service: ServiceOut
+    api_key: str
+
+
+class ServiceKeyItem(BaseModel):
+    id: str
+    name: str
+    key_prefix: str
+    revoked: bool = False
+    created_at: UtcDateTime
+
+
+class ServiceKeyCreate(BaseModel):
+    name: str = Field(default="default", max_length=40)
+
+
+class ServiceKeyIssued(BaseModel):
+    key: ServiceKeyItem
     api_key: str
 
 

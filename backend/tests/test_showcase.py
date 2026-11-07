@@ -144,6 +144,7 @@ def test_showcase_seed_submit_and_protect(tmp_path, monkeypatch):
     probe = client.get("/api/clusters/showcase-demo/probe", headers=headers)
     assert probe.status_code == 200
     assert probe.json()["reachable"] is True
+    assert probe.json()["gpu_allocatable"] == 3
 
     with Session(engine) as session:
         from app.models.entities import Run
@@ -202,4 +203,49 @@ def test_showcase_curve_matches_summary(tmp_path, monkeypatch):
     assert trends["seed-nanogpt"]["key"] == "loss"
     assert trends["seed-nanogpt"]["last"] == m["summary"]["loss"]
     assert len(trends["seed-nanogpt"]["points"]) <= 32
+    app.dependency_overrides.clear()
+
+
+def test_showcase_observe_workloads_and_provider(tmp_path, monkeypatch):
+    client, _engine = _client(tmp_path, monkeypatch, showcase=True)
+    login = client.post("/api/auth/login", json={"username": "admin", "password": ADMIN_PASS})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    loads = client.get("/api/clusters/showcase-demo/workloads", headers=headers)
+    assert loads.status_code == 200, loads.text
+    body = loads.json()
+    names = {node["name"] for node in body["nodes"]}
+    assert names == {"cn-shanghai.10.0.1.11", "cn-shanghai.10.0.1.12", "cn-shanghai.10.0.1.13"}
+    assert body["nodes"][0]["ip"].startswith("10.0.1.")
+    jobs = {item["display_name"]: item for item in body["items"]}
+    assert jobs["gpu-smoke"]["status"] == "failed"
+    assert jobs["gpu-smoke"]["pods"][0]["reason"] == "ImagePullBackOff"
+    assert jobs["monitor-demo"]["status"] == "running"
+    assert jobs["iris-api"]["kind"] == "Deployment"
+
+    observe = client.get("/api/observe?cluster_id=showcase-demo", headers=headers)
+    assert observe.status_code == 200, observe.text
+    view = observe.json()
+    assert view["sources"]["simulated"] is True
+    assert view["sources"]["metrics_server"] is False
+    assert view["totals"]["cpu_alloc"] == 32
+    assert view["totals"]["gpu_alloc"] == 3
+    assert view["totals"]["gpu_util"] == 40.3
+    assert view["nodes"][0]["name"] == "cn-shanghai.10.0.1.11"
+    train = {row["id"]: row for row in view["training"]}
+    assert train["seed-monitor"]["cpu_cores"] == 0.18
+    infer = {row["name"]: row for row in view["inference"]}
+    assert infer["iris-api"]["requests"] == 1284
+    assert infer["iris-api"]["on_cluster"] is True
+    assert infer["deepseek-chat"]["provider"] is True
+    assert infer["deepseek-chat"]["requests"] == 860
+    assert infer["deepseek-chat"]["avg_latency_ms"] == 420.0
+
+    models = client.get("/api/models", headers=headers).json()
+    deepseek = next(row for row in models if row["id"] == "seed-model-deepseek")
+    assert deepseek["origin"] == "provider"
+    assert deepseek["provider"] == "deepseek"
+    assert deepseek["upstream_model"] == "deepseek-flash"
+    assert deepseek["has_upstream_key"] is True
+    assert "upstream_key" not in deepseek
     app.dependency_overrides.clear()

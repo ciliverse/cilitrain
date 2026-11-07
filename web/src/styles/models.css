@@ -1,5 +1,132 @@
 /* Model registry + batch inference. Builds on runs.css tokens. */
 
+.provider-form {
+  margin-bottom: 1rem;
+}
+
+.empty-state .provider-form {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.models-page .page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.provider-picks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.7rem 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--dur-hover) var(--ease-move), background var(--dur-hover) var(--ease-move);
+}
+
+.provider-pick:hover {
+  border-color: var(--line-strong);
+  background: var(--bg-hover);
+}
+
+.provider-pick.is-on {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.provider-pick:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.provider-mark {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 8px;
+  background: #fff;
+  color: #111;
+  overflow: hidden;
+}
+
+.provider-mark img,
+.provider-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.provider-pick-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.provider-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.provider-span {
+  grid-column: 1 / -1;
+}
+
+select.field {
+  cursor: pointer;
+}
+
+.provider-model-manual {
+  margin-top: 0.45rem;
+}
+
+.provider-model-note {
+  margin: 0.35rem 0 0;
+}
+
+.provider-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .provider-picks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .provider-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .model-ver {
   margin-left: 0.4rem;
   padding: 0.05rem 0.35rem;
@@ -555,6 +682,38 @@
 
 .svc-err-count {
   color: var(--danger);
+}
+
+.svc-key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.svc-key-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.svc-key-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.svc-key-form .field {
+  flex: 1;
+}
+
+.svc-chat-out {
+  margin: 0.75rem 0 0;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
 }
 
 .svc-access-grid {

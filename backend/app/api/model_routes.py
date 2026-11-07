@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
@@ -37,7 +38,8 @@ from app.services.inference import (
     wait_for_model,
 )
 from app.services.job_builder import SCRIPT_MOUNT_PATH, Guardrails, validate_resources
-from app.services.models import can_access_model, model_dir, model_label, model_out, register_model
+from app.services.models import can_access_model, model_dir, model_label, model_out, register_model, register_provider_model
+from app.services.providers import provider_catalog
 from app.services.queue import QUEUED, check_room, check_user_quota
 from app.services.showcase import advance_simulated, is_showcase, simulated_snapshot
 
@@ -98,6 +100,39 @@ def list_model_runs(
             snap = simulated_snapshot(run)
         out.append(_run_out(run, snap=snap))
     return out
+
+
+class ProviderModelCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=41)
+    provider: str = Field(min_length=1, max_length=40)
+    upstream_model: str = Field(min_length=1, max_length=120)
+    base_url: str = ""
+    api_key: str = ""
+
+
+@router.get("/providers", response_model=list[dict])
+def list_providers(_cu: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    return provider_catalog()
+
+
+@router.post("/models/providers", response_model=ModelOut)
+def add_provider_model(
+    body: ProviderModelCreate,
+    session: Session = Depends(get_session),
+    cu: CurrentUser = Depends(get_current_user),
+) -> ModelOut:
+    if cu.user.role == "viewer":
+        raise HTTPException(status_code=403, detail="viewers cannot add models")
+    m = register_provider_model(
+        session,
+        name=body.name.strip(),
+        provider=body.provider.strip(),
+        upstream_model=body.upstream_model.strip(),
+        base_url=body.base_url,
+        api_key=body.api_key,
+        owner_user_id=_owner_id(session, cu),
+    )
+    return ModelOut(**model_out(session, m))
 
 
 @router.post("/runs/{run_id}/register-model", response_model=ModelOut)

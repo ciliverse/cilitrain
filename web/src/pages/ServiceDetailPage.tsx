@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, type AuthUser, type InferenceService, type InferSpec, type ServicePrediction } from '../api'
+import { api, type AuthUser, type InferenceService, type InferSpec, type ServiceKeyRow, type ServicePrediction } from '../api'
 import ApiKeyDialog from '../components/ApiKeyDialog'
 import CodeBlock from '../components/CodeBlock'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -28,6 +28,18 @@ export function curlExample(url: string, spec?: InferSpec | null): string {
   ].join('\n')
 }
 
+export function openaiExample(base: string, model: string): string {
+  return [
+    `export OPENAI_BASE_URL=${base}`,
+    `export OPENAI_API_KEY=$CILITRAIN_KEY`,
+    '',
+    `curl "$OPENAI_BASE_URL/chat/completions" \\`,
+    `  -H "Authorization: Bearer $OPENAI_API_KEY" \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -d '{"model":"${model}","messages":[{"role":"user","content":"你好"}]}'`,
+  ].join('\n')
+}
+
 export default function ServiceDetailPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
@@ -43,12 +55,20 @@ export default function ServiceDetailPage() {
   const [result, setResult] = useState<ServicePrediction | null>(null)
   const [tryErr, setTryErr] = useState('')
   const [copied, setCopied] = useState(false)
+  const [keys, setKeys] = useState<ServiceKeyRow[]>([])
+  const [keyName, setKeyName] = useState('')
+  const [chat, setChat] = useState('')
+  const [chatOut, setChatOut] = useState('')
 
   const load = useCallback(() => {
     api
       .service(id)
       .then(setSvc)
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+    api
+      .serviceKeys(id)
+      .then(setKeys)
+      .catch(() => {})
     api
       .serviceLogs(id)
       .then((r) => setLogs(r.logs))
@@ -99,7 +119,9 @@ export default function ServiceDetailPage() {
   }
 
   const canMutate = !!me && me.role !== 'viewer'
+  const openai = svc?.protocol === 'openai'
   const url = svc ? `${window.location.origin}${svc.endpoint_path}` : ''
+  const base = openai ? url.replace(/\/chat\/completions$/, '') : url
   const running = svc?.status === 'running'
   const errorRate = svc && svc.requests ? `${((svc.errors / svc.requests) * 100).toFixed(1)}%` : '—'
 
@@ -127,15 +149,13 @@ export default function ServiceDetailPage() {
           </div>
           <div className="runs-head-meta">
             {svc && (
-              <span className="mono">
-                {svc.cluster_name || svc.cluster_id} · {svc.namespace}
-              </span>
+              <span className="mono">{openai ? 'OpenAI' : `${svc.cluster_name || svc.cluster_id} · ${svc.namespace}`}</span>
             )}
           </div>
         </div>
         {svc && canMutate && (
           <div className="flex flex-wrap items-center gap-2">
-            {svc.status !== 'stopped' && (
+            {svc.status !== 'stopped' && !openai && (
               <div className="runs-kind svc-replica-pick" role="group" aria-label={t('svcColReplicas')}>
                 {[1, 2, 3].map((n) => (
                   <button
@@ -183,20 +203,24 @@ export default function ServiceDetailPage() {
               </Link>
             </dd>
           </div>
-          <div>
-            <dt>{t('svcColReplicas')}</dt>
-            <dd className="mono">
-              {svc.status === 'stopped'
-                ? '—'
-                : t('svcReady').replace('{r}', String(svc.ready_replicas)).replace('{n}', String(svc.replicas))}
-            </dd>
-          </div>
-          <div>
-            <dt>{t('svcResources')}</dt>
-            <dd className="mono">
-              {svc.cpu} CPU · {svc.memory}
-            </dd>
-          </div>
+          {!openai && (
+            <div>
+              <dt>{t('svcColReplicas')}</dt>
+              <dd className="mono">
+                {svc.status === 'stopped'
+                  ? '—'
+                  : t('svcReady').replace('{r}', String(svc.ready_replicas)).replace('{n}', String(svc.replicas))}
+              </dd>
+            </div>
+          )}
+          {!openai && (
+            <div>
+              <dt>{t('svcResources')}</dt>
+              <dd className="mono">
+                {svc.cpu} CPU · {svc.memory}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>{t('svcStarted')}</dt>
             <dd>{svc.started_at && svc.status !== 'stopped' ? formatLocalDateTime(svc.started_at, lang) : '—'}</dd>
@@ -223,7 +247,7 @@ export default function ServiceDetailPage() {
             </div>
             <div className="svc-field">
               <span className="svc-field-k">{t('svcApiKey')}</span>
-              <code className="mono svc-field-v">{svc.api_key_prefix}••••••••••••</code>
+              <code className="mono svc-field-v">{svc.api_key_prefix || '—'}••••••••••••</code>
               {canMutate && (
                 <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setPending('rotate')}>
                   {t('svcRotate')}
@@ -231,13 +255,114 @@ export default function ServiceDetailPage() {
               )}
             </div>
           </div>
+          <div className="svc-keys">
+            {keys.length === 0 ? (
+              <p className="panel-note">{t('svcKeyEmpty')}</p>
+            ) : (
+              <ul className="svc-key-list">
+                {keys.map((row) => (
+                  <li key={row.id}>
+                    <span className="mono">
+                      {row.name} · {row.key_prefix}••••
+                    </span>
+                    {row.revoked ? (
+                      <span className="runs-sub">{t('svcKeyRevoke')}</span>
+                    ) : (
+                      canMutate &&
+                      row.id !== 'primary' && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy}
+                          onClick={() =>
+                            act(() => api.revokeServiceKey(id, row.id), () => load())
+                          }
+                        >
+                          {t('svcKeyRevoke')}
+                        </button>
+                      )
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canMutate && (
+              <form
+                className="svc-key-form"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  act(
+                    () => api.issueServiceKey(id, keyName.trim() || 'default'),
+                    (v) => {
+                      const issued = v as { api_key: string }
+                      sessionStorage.setItem(`svc-key-${id}`, issued.api_key)
+                      setNewKey(issued.api_key)
+                      setKeyName('')
+                      load()
+                    },
+                  )
+                }}
+              >
+                <input
+                  className="field"
+                  value={keyName}
+                  placeholder={t('svcKeyName')}
+                  onChange={(e) => setKeyName(e.target.value)}
+                />
+                <button type="submit" className="btn btn-secondary btn-sm" disabled={busy}>
+                  {t('svcKeyIssue')}
+                </button>
+              </form>
+            )}
+          </div>
           <h3 className="svc-h3">{t('svcCurl')}</h3>
-          <CodeBlock text={curlExample(url, svc.infer)} filename="predict.sh" language="bash" />
-          <p className="panel-note">{t('svcCurlHint')}</p>
+          <CodeBlock
+            text={openai ? openaiExample(base, svc.name) : curlExample(url, svc.infer)}
+            filename={openai ? 'openai.sh' : 'predict.sh'}
+            language="bash"
+          />
+          <p className="panel-note">{openai ? t('svcCurlOpenai') : t('svcCurlHint')}</p>
         </section>
       )}
 
-      {svc?.infer && (
+      {openai && svc && (
+        <section className="panel panel-pad">
+          <div className="panel-head">
+            <h2 className="panel-title">{t('svcTry')}</h2>
+          </div>
+          <p className="panel-note infer-desc">{t('svcTryDesc')}</p>
+          <form
+            className="svc-key-form"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!chat.trim()) return
+              setBusy(true)
+              setTryErr('')
+              api
+                .serviceChat(id, chat.trim())
+                .then((res) => setChatOut(res.choices?.[0]?.message?.content || ''))
+                .catch((ex) => setTryErr(formatApiMessage(ex instanceof Error ? ex.message : String(ex), t)))
+                .finally(() => setBusy(false))
+            }}
+          >
+            <input
+              className="field"
+              value={chat}
+              placeholder={t('svcChatPlaceholder')}
+              onChange={(e) => setChat(e.target.value)}
+              disabled={!running || busy}
+            />
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!running || busy || !chat.trim()}>
+              {t('svcChatSend')}
+            </button>
+          </form>
+          {!running && <p className="panel-note infer-viewer">{t('svcTryNotRunning')}</p>}
+          {tryErr && <p className="flash flash-err">{tryErr}</p>}
+          {chatOut && <pre className="mono svc-chat-out">{chatOut}</pre>}
+        </section>
+      )}
+
+      {svc?.infer && !openai && (
         <div className="infer-layout">
           <section className="panel panel-pad">
             <div className="panel-head">

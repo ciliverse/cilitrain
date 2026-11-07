@@ -618,7 +618,7 @@ def _seed_run(
             gpu_count=gpu_count,
             timeout_seconds=timeout_sec,
             status=status,
-            job_name=job_name_for(run_id),
+            job_name=job_name_for(run_id, name),
             job_yaml=yaml_str,
             simulated=True,
             showcase_seed=True,
@@ -676,6 +676,175 @@ def _past_samples(start: datetime, minutes: int) -> list[dict]:
             }
         )
     return out
+
+
+_DEMO_NODES = (
+    {
+        "name": "cn-shanghai.10.0.1.11",
+        "ready": True,
+        "cpu": "8",
+        "memory": "32Gi",
+        "gpu": 1,
+        "roles": "",
+        "kubelet": "v1.32.1",
+        "ip": "10.0.1.11",
+        "pressure": "",
+    },
+    {
+        "name": "cn-shanghai.10.0.1.12",
+        "ready": True,
+        "cpu": "8",
+        "memory": "32Gi",
+        "gpu": 0,
+        "roles": "",
+        "kubelet": "v1.32.1",
+        "ip": "10.0.1.12",
+        "pressure": "",
+    },
+    {
+        "name": "cn-shanghai.10.0.1.13",
+        "ready": True,
+        "cpu": "16",
+        "memory": "64Gi",
+        "gpu": 2,
+        "roles": "",
+        "kubelet": "v1.32.1",
+        "ip": "10.0.1.13",
+        "pressure": "",
+    },
+)
+
+_DEMO_NODE_USAGE = (
+    {"name": "cn-shanghai.10.0.1.11", "cpu": "2100m", "memory": "14Gi"},
+    {"name": "cn-shanghai.10.0.1.12", "cpu": "860m", "memory": "6Gi"},
+    {"name": "cn-shanghai.10.0.1.13", "cpu": "6400m", "memory": "28Gi"},
+)
+
+_DEMO_GPU = (
+    {"node": "cn-shanghai.10.0.1.11", "value": 62.0, "gpu": "0"},
+    {"node": "cn-shanghai.10.0.1.13", "value": 18.0, "gpu": "0"},
+    {"node": "cn-shanghai.10.0.1.13", "value": 41.0, "gpu": "1"},
+)
+
+
+def showcase_nodes() -> list[dict]:
+    return [dict(row) for row in _DEMO_NODES]
+
+
+def showcase_observe_parts() -> dict:
+    """Fake node and pod samples so the observe page is populated in the exhibit."""
+    return {
+        "nodes": showcase_nodes(),
+        "node_usage": [dict(row) for row in _DEMO_NODE_USAGE],
+        "pod_usage": [
+            {"run_id": "seed-monitor", "service_id": "", "cpu": "180m", "memory": "240Mi"},
+            {"run_id": "", "service_id": "seed-service-iris", "cpu": "70m", "memory": "190Mi"},
+        ],
+        "gpu_samples": [dict(row) for row in _DEMO_GPU],
+    }
+
+
+def showcase_workloads(session: Session) -> dict:
+    """Jobs, the demo inference Deployment, and nodes. No Kubernetes calls."""
+    items: list[dict] = []
+    runs = session.exec(select(Run).where(Run.cluster_id == DEMO_CLUSTER_ID)).all()
+    for run in runs:
+        if (run.kind or "train") == "infer":
+            continue
+        failed = run.status in {"failed", "timeout"}
+        running = run.status == "running"
+        pending = run.status in {"pending", "queued"}
+        pod_phase = "Pending" if pending else "Running" if running else "Failed" if failed else "Succeeded"
+        reason = "ImagePullBackOff" if failed and "pull" in (run.error_message or "").lower() else None
+        items.append(
+            {
+                "kind": "Job",
+                "name": run.job_name or run.name,
+                "display_name": run.name,
+                "namespace": run.namespace,
+                "run_id": run.id,
+                "status": run.status,
+                "image": run.image,
+                "cpu": run.cpu,
+                "memory": run.memory,
+                "gpu": int(run.gpu_count or 0),
+                "template": run.template,
+                "message": run.error_message,
+                "active": 1 if running or pending else 0,
+                "succeeded": 1 if run.status == "succeeded" else 0,
+                "failed": 1 if failed else 0,
+                "created_at": run.created_at,
+                "started_at": run.started_at or run.created_at,
+                "finished_at": run.finished_at,
+                "pods": [
+                    {
+                        "name": pod_name_for(run),
+                        "phase": pod_phase,
+                        "node": "cn-shanghai.10.0.1.11" if int(run.gpu_count or 0) else "cn-shanghai.10.0.1.12",
+                        "ip": "" if reason else "10.0.2.40",
+                        "restarts": 0,
+                        "reason": reason,
+                        "ready": running,
+                        "image": run.image,
+                        "cpu": run.cpu,
+                        "memory": run.memory,
+                    }
+                ],
+                "events": (
+                    [
+                        {
+                            "type": "Warning",
+                            "reason": "Failed",
+                            "message": run.error_message or "ImagePullBackOff",
+                            "count": 4,
+                        }
+                    ]
+                    if reason
+                    else [{"type": "Normal", "reason": "Started", "message": "simulated container started", "count": 1}]
+                ),
+            }
+        )
+    svc = session.get(InferenceService, "seed-service-iris")
+    if svc is not None:
+        items.append(
+            {
+                "kind": "Deployment",
+                "name": "iris-api",
+                "display_name": svc.name,
+                "namespace": svc.namespace or "default",
+                "service_id": svc.id,
+                "status": svc.status,
+                "image": svc.image,
+                "cpu": svc.cpu,
+                "memory": svc.memory,
+                "template": svc.template,
+                "active": svc.replicas or 1,
+                "created_at": svc.created_at,
+                "started_at": svc.started_at,
+                "pods": [
+                    {
+                        "name": "sim-iris-api",
+                        "phase": "Running",
+                        "node": "cn-shanghai.10.0.1.12",
+                        "ip": "10.0.2.41",
+                        "restarts": 0,
+                        "ready": True,
+                        "image": svc.image,
+                        "cpu": svc.cpu,
+                        "memory": svc.memory,
+                    }
+                ],
+            }
+        )
+    def _ts(value: datetime | None) -> float:
+        if value is None:
+            return 0.0
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.timestamp()
+
+    items.sort(key=lambda row: _ts(row.get("created_at")), reverse=True)
+    return {"items": items, "nodes": showcase_nodes()}
 
 
 def prepare_showcase(session: Session) -> None:
@@ -803,7 +972,7 @@ def prepare_showcase(session: Session) -> None:
             gpu_count=0,
             timeout_seconds=int(_MONITOR_DONE_S),
             status="running",
-            job_name=job_name_for("seed-monitor"),
+            job_name=job_name_for("seed-monitor", "monitor-demo"),
             job_yaml=monitor_yaml,
             simulated=True,
             showcase_seed=True,
@@ -825,6 +994,7 @@ def prepare_showcase(session: Session) -> None:
         session.commit()
     advance_simulated(session, monitor, now)
     _seed_models(session, admin, now)
+    _seed_provider_model(session, admin, now)
     _seed_service(session, admin, now)
     _pin_cilikube_url(session)
 
@@ -834,8 +1004,9 @@ def _seed_service(session: Session, admin: User, now: datetime) -> None:
 
     from app.services.serving import _recent, forget, new_api_key
 
+    keep_svc = {"seed-service-iris", "seed-service-deepseek"}
     for svc in session.exec(select(InferenceService)).all():
-        if svc.id != "seed-service-iris":
+        if svc.id not in keep_svc:
             forget(svc.id)
             session.delete(svc)
     session.commit()
@@ -862,6 +1033,7 @@ def _seed_service(session: Session, admin: User, now: datetime) -> None:
     forget(svc.id)
     session.add(svc)
     session.commit()
+    _seed_provider_service(session, admin, now)
     ring = _recent.setdefault(svc.id, deque(maxlen=20))
     for i, (label, p, rows, ms) in enumerate(_SEED_TRAFFIC):
         at = now - timedelta(minutes=2 + 7 * (len(_SEED_TRAFFIC) - 1 - i))
@@ -908,8 +1080,57 @@ _SEED_MODELS = (
 )
 
 
+def _seed_provider_model(session: Session, admin: User, now: datetime) -> None:
+    model_id = "seed-model-deepseek"
+    m = session.get(ModelVersion, model_id) or ModelVersion(
+        id=model_id, name="deepseek-flash", template="provider"
+    )
+    m.name, m.version, m.template = "deepseek-flash", 1, "provider"
+    m.source_run_id = None
+    m.owner_user_id = admin.id
+    m.origin = "provider"
+    m.provider = "deepseek"
+    m.base_url = "https://api.deepseek.com/v1"
+    m.upstream_model = "deepseek-flash"
+    m.upstream_key = "sk-showcase-not-a-real-key"
+    m.files_json = "[]"
+    m.size_bytes = 0
+    m.metrics_json = "{}"
+    m.showcase_seed = True
+    m.created_at = now - timedelta(hours=1)
+    session.add(m)
+    session.commit()
+
+
+def _seed_provider_service(session: Session, admin: User, now: datetime) -> None:
+    svc = session.get(InferenceService, "seed-service-deepseek") or InferenceService(
+        id="seed-service-deepseek",
+        name="deepseek-chat",
+        model_id="seed-model-deepseek",
+        cluster_id="",
+    )
+    svc.owner_user_id = admin.id
+    svc.cluster_id = ""
+    svc.namespace = "default"
+    svc.template = "provider"
+    svc.image = ""
+    svc.cpu, svc.memory, svc.replicas = "0", "0", 0
+    svc.status = "running"
+    svc.simulated = True
+    svc.showcase_seed = True
+    svc.error_message = None
+    svc.api_key_hash, svc.api_key_prefix = "showcase", "ctk_demo"
+    svc.requests, svc.errors, svc.total_ms = 860, 4, 860 * 420
+    svc.last_request_at = now - timedelta(minutes=5)
+    svc.created_at = svc.started_at = now - timedelta(hours=3)
+    svc.stopped_at = None
+    svc.updated_at = now
+    session.add(svc)
+    session.commit()
+
+
 def _seed_models(session: Session, admin: User, now: datetime) -> None:
-    keep = {row[0] for row in _SEED_MODELS}
+    keep = {row[0] for row in _SEED_MODELS} | {"seed-model-deepseek"}
     for m in session.exec(select(ModelVersion)).all():
         if m.id not in keep:
             shutil.rmtree(model_dir(m.id), ignore_errors=True)
@@ -955,7 +1176,7 @@ def _seed_models(session: Session, admin: User, now: datetime) -> None:
         run.status = "succeeded"
         run.simulated = True
         run.showcase_seed = True
-        run.job_name = job_name_for(infer_id)
+        run.job_name = job_name_for(infer_id, f"infer-{name}")
         run.created_at = start
         run.finished_at = start + timedelta(seconds=40)
         run.updated_at = run.finished_at

@@ -165,11 +165,12 @@ pre,
 
 .app-header {
   height: var(--header-h);
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+  display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 0 1rem 0 1.1rem;
+  max-width: 100%;
+  min-width: 0;
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklch, var(--bg-surface) 78%, transparent);
   backdrop-filter: saturate(1.15) blur(10px);
@@ -183,12 +184,73 @@ pre,
   display: flex;
   align-items: center;
   gap: 0.85rem;
+  flex: 1 0 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
 .app-header-center {
+  position: relative;
   display: flex;
+  flex: 0 1 auto;
+  align-items: center;
   justify-content: center;
+  justify-content: safe center;
+  gap: 0.28rem;
+  min-width: min(100%, 9rem);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.nav-scroller {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.nav-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.nav-scroller[data-more-right] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.nav-scroller[data-more-left] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+}
+
+.nav-scroller[data-more-left][data-more-right] {
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+
+.nav-hint {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.nav-hint:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.nav-hint:disabled {
+  display: none;
 }
 
 .app-header-right {
@@ -196,7 +258,8 @@ pre,
   align-items: center;
   justify-content: flex-end;
   gap: 0.55rem;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: max-content;
 }
 
 .app-content {
@@ -211,6 +274,7 @@ pre,
   display: inline-flex;
   align-items: baseline;
   gap: 0.35rem;
+  flex-shrink: 0;
   white-space: nowrap;
   line-height: 1;
 }
@@ -992,10 +1056,39 @@ a.tab:active {
   border-top: 1px solid var(--line);
 }
 
+.node-reveal {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.node-reveal:hover {
+  color: var(--text);
+}
+
+.obs-h-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .spec-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: 0.75rem 1.25rem;
+}
+
+.spec-grid > div {
+  min-width: 0;
+}
+
+.spec-grid .spec-wide {
+  grid-column: 1 / -1;
 }
 
 .spec-grid dt {
@@ -1009,6 +1102,7 @@ a.tab:active {
 .spec-grid dd {
   margin: 0.2rem 0 0;
   font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 
 .log-head {
@@ -1035,6 +1129,10 @@ a.tab:active {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+}
+
+.log-quiet {
+  margin: 0 0 0.55rem;
 }
 
 .log-pane {
@@ -1600,21 +1698,31 @@ button.metric-cell[data-on='true'] {
 
 @media (max-width: 960px) {
   .app-header {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
     height: auto;
     padding: 0.65rem 0.85rem;
     gap: 0.65rem;
   }
 
+  .app-header-left,
+  .app-header-center,
+  .app-header-right {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .app-header-center {
     order: 3;
     justify-content: flex-start;
-    overflow-x: auto;
   }
 
   .app-header-right {
     order: 2;
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .tabs {

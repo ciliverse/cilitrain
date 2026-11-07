@@ -158,6 +158,58 @@ def pod_resource_series(
     }
 
 
+def query_vector(query: str) -> list[dict[str, Any]]:
+    """Instant query. Each row is {labels, value}. Empty when Prometheus is down."""
+    base = prometheus_base()
+    if not base:
+        return []
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            r = client.get(f"{base}/api/v1/query", params={"query": query})
+            r.raise_for_status()
+            data = r.json()
+    except Exception:  # noqa: BLE001
+        return []
+    if data.get("status") != "success":
+        return []
+    out: list[dict[str, Any]] = []
+    for row in (data.get("data") or {}).get("result") or []:
+        raw = row.get("value") or []
+        if len(raw) < 2:
+            continue
+        try:
+            value = float(raw[1])
+        except (TypeError, ValueError):
+            continue
+        out.append({"labels": row.get("metric") or {}, "value": value})
+    return out
+
+
+def gpu_util_samples() -> list[dict[str, Any]]:
+    """DCGM GPU utilization, 0–100. Empty when the metric is not scraped."""
+    if not prometheus_ready():
+        return []
+    for query in ("DCGM_FI_DEV_GPU_UTIL", "nvidia_smi_utilization_gpu_ratio"):
+        rows = query_vector(query)
+        if not rows:
+            continue
+        samples = []
+        for row in rows:
+            labels = row["labels"]
+            node = (
+                labels.get("Hostname")
+                or labels.get("kubernetes_node")
+                or labels.get("node")
+                or ""
+            )
+            value = row["value"]
+            if value <= 1.5 and "ratio" in query:
+                value *= 100
+            samples.append({"node": node, "value": value, "gpu": labels.get("gpu") or labels.get("GPU_I_ID") or ""})
+        return samples
+    return []
+
+
 def prometheus_ready() -> bool:
     base = prometheus_base()
     if not base:

@@ -68,9 +68,11 @@ export default function RunsPage() {
   const [lastSync, setLastSync] = useState<number | null>(null)
   const [paused, setPaused] = useState(false)
   const [me, setMe] = useState<AuthUser | null>(null)
+  const [hasCluster, setHasCluster] = useState<boolean | null>(null)
 
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null))
+    api.clusters().then((cs) => setHasCluster(cs.length > 0)).catch(() => setHasCluster(null))
   }, [])
 
   async function load() {
@@ -327,14 +329,20 @@ export default function RunsPage() {
               {runs.length === 0 ? t('runsEmptyTitle') : t('runsEmptyFilteredTitle')}
             </p>
             <p className="runs-empty-desc">
-              {runs.length === 0 ? t('runsEmptyDesc') : t('runsEmptyFilteredDesc')}
+              {runs.length === 0
+                ? hasCluster === false
+                  ? t('runsEmptyDesc')
+                  : t('runsEmptyReady')
+                : t('runsEmptyFilteredDesc')}
             </p>
           </div>
           {runs.length === 0 ? (
             <div className="empty-actions">
-              <Link to="/clusters" className="btn btn-secondary">
-                {t('goClusters')}
-              </Link>
+              {hasCluster === false ? (
+                <Link to="/clusters" className="btn btn-secondary">
+                  {t('goClusters')}
+                </Link>
+              ) : null}
               <Link to="/new" className="btn btn-primary">
                 {t('newRunBtn')}
               </Link>
@@ -461,14 +469,20 @@ export default function RunsPage() {
                       )}
                       {me?.role !== 'viewer' && isTerminal(r.status) && (
                         <>
-                          <button
-                            type="button"
-                            disabled={busyId === r.id}
-                            onClick={() => setDialog({ kind: 'rerun', run: r })}
-                            className="runs-act runs-act-primary"
-                          >
-                            {t('rerun')}
-                          </button>
+                          {r.kind !== 'infer' && isFailed(r.status) ? (
+                            <Link to={`/new?from=${r.id}`} className="runs-act runs-act-primary">
+                              {t('editRerun')}
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busyId === r.id}
+                              onClick={() => setDialog({ kind: 'rerun', run: r })}
+                              className="runs-act runs-act-primary"
+                            >
+                              {t('rerun')}
+                            </button>
+                          )}
                           {canCleanup(r) && (
                             <button
                               type="button"

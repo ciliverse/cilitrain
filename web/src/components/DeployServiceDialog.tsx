@@ -11,6 +11,7 @@ export default function DeployServiceDialog({
   initialName,
   busy,
   error,
+  provider,
   onSubmit,
   onClose,
 }: {
@@ -18,6 +19,7 @@ export default function DeployServiceDialog({
   initialName: string
   busy?: boolean
   error?: string
+  provider?: boolean
   onSubmit: (name: string, replicas: number) => void
   onClose: () => void
 }) {
@@ -68,7 +70,7 @@ export default function DeployServiceDialog({
           <h2 id={titleId} className="ops-confirm-title">
             {t('svcDeployTitle')}
           </h2>
-          <p className="ops-confirm-desc">{t('svcDeployDesc')}</p>
+          <p className="ops-confirm-desc">{provider ? t('svcDeployProviderDesc') : t('svcDeployDesc')}</p>
         </div>
         <div className="ops-confirm-match svc-deploy-fields">
           <label className="label">
@@ -82,6 +84,7 @@ export default function DeployServiceDialog({
               spellCheck={false}
             />
           </label>
+          {!provider && (
           <div className="label">
             {t('svcDeployReplicas')}
             <div className="runs-kind svc-replica-pick" role="group" aria-label={t('svcDeployReplicas')}>
@@ -92,6 +95,7 @@ export default function DeployServiceDialog({
               ))}
             </div>
           </div>
+          )}
           {error && <p className="flash flash-err register-err">{error}</p>}
         </div>
         <div className="ops-confirm-actions">

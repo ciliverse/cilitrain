@@ -17,6 +17,9 @@ ANN_TIMEOUT = "cilitrain.io/timeout-seconds"
 ANN_HOLD = "cilitrain.io/hold-seconds"
 ANN_GPU = "cilitrain.io/gpu-count"
 GPU_RESOURCE = "nvidia.com/gpu"
+ANN_SCHEDULER = "cilitrain.io/scheduler"
+_PLATFORM_SCHEDULERS = {"", "platform", "default", "default-scheduler"}
+_SCHEDULER_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 HOLD_SECONDS_MIN = 15
 HOLD_SECONDS_MAX = 300
@@ -118,17 +121,49 @@ def validate_resources(
             raise HTTPException(status_code=400, detail="timeout_seconds must be positive")
 
 
-def job_name_for(run_id: str) -> str:
-    short = run_id.replace("-", "")[:10]
-    return f"cilitrain-{short}"
+# ConfigMap is "{job}-scripts"; both must stay within the 63-char DNS label limit.
+_JOB_NAME_MAX = 63 - len("-scripts")
+
+
+def normalize_scheduler(value: str | None) -> str:
+    """Empty means the cluster default scheduler. Any other value is a schedulerName."""
+    raw = (value or "").strip().lower()
+    if raw in _PLATFORM_SCHEDULERS:
+        return ""
+    if len(raw) > 63 or not _SCHEDULER_NAME.fullmatch(raw):
+        raise HTTPException(
+            status_code=400,
+            detail="scheduler name must be a DNS label of at most 63 characters",
+        )
+    return raw
+
+
+def job_name_for(run_id: str, name: str | None = None) -> str:
+    """Kubernetes Job name. Prefer the training name; never add a product prefix."""
+    source = (name or "").strip().lower() or run_id
+    slug = re.sub(r"[^a-z0-9]+", "-", source).strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    if not slug:
+        slug = re.sub(r"[^a-z0-9]+", "", run_id.lower())[:12] or "train"
+    if len(slug) > _JOB_NAME_MAX:
+        slug = slug[:_JOB_NAME_MAX].rstrip("-")
+    return slug or "train"
+
+
+def disambiguate_job_name(base: str, run_id: str) -> str:
+    """Same training name already owns a Job in this namespace: keep the name, add a short id."""
+    suffix = re.sub(r"[^a-z0-9]", "", run_id.lower())[:4] or "run"
+    room = _JOB_NAME_MAX - len(suffix) - 1
+    trimmed = (base[:room].rstrip("-") or "train")
+    return f"{trimmed}-{suffix}"
 
 
 SCRIPT_MOUNT_PATH = "/workspace"
 MODEL_MOUNT_PATH = "/model"
 
 
-def script_configmap_name(run_id: str) -> str:
-    return f"{job_name_for(run_id)}-scripts"
+def script_configmap_name(job_name: str) -> str:
+    return f"{job_name}-scripts"
 
 
 def build_script_configmap(
@@ -137,13 +172,16 @@ def build_script_configmap(
     namespace: str,
     template: str,
     files: dict[str, str],
+    job_name: str | None = None,
+    name: str | None = None,
 ) -> dict[str, Any]:
     """Program bodies live in a ConfigMap so the Job manifest stays reviewable."""
+    jn = job_name or job_name_for(run_id, name)
     return {
         "apiVersion": "v1",
         "kind": "ConfigMap",
         "metadata": {
-            "name": script_configmap_name(run_id),
+            "name": script_configmap_name(jn),
             "namespace": namespace,
             "labels": {
                 LABEL_MANAGED: "cilitrain",
@@ -176,13 +214,16 @@ def build_job(
     files: dict[str, str] | None = None,
     model_mount: bool = False,
     extra_env: dict[str, str] | None = None,
+    job_name: str | None = None,
+    scheduler: str | None = None,
 ) -> dict[str, Any]:
     g = guardrails or Guardrails()
     validate_resources(cpu, memory, timeout_seconds, g, gpu_count=gpu_count)
     hold = clamp_hold_seconds(hold_seconds)
     gpus = int(gpu_count)
 
-    jn = job_name_for(run_id)
+    jn = job_name or job_name_for(run_id, name)
+    scheduler_name = normalize_scheduler(scheduler)
     labels = {
         LABEL_MANAGED: "cilitrain",
         LABEL_RUN: run_id,
@@ -213,7 +254,7 @@ def build_job(
 
     if files:
         volumes.append(
-            {"name": "scripts", "configMap": {"name": script_configmap_name(run_id)}}
+            {"name": "scripts", "configMap": {"name": script_configmap_name(jn)}}
         )
         volume_mounts.append(
             {"name": "scripts", "mountPath": SCRIPT_MOUNT_PATH, "readOnly": True}
@@ -266,6 +307,7 @@ def build_job(
                 ANN_HOLD: str(hold),
                 ANN_GPU: str(gpus),
                 "cilitrain.io/display-name": name,
+                ANN_SCHEDULER: scheduler_name or "default-scheduler",
             },
         },
         "spec": {
@@ -276,6 +318,7 @@ def build_job(
                 "metadata": {"labels": labels},
                 "spec": {
                     "restartPolicy": "Never",
+                    **({"schedulerName": scheduler_name} if scheduler_name else {}),
                     "containers": [container],
                     "volumes": volumes,
                 },

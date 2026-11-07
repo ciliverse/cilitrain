@@ -55,6 +55,7 @@ class Run(SQLModel, table=True):
     batch_rows: Optional[int] = None  # CSV batch inference; rows live in the inference store
     queue_reason: Optional[str] = None  # why a queued run is waiting: namespace / user_active / user_quota / scheduled
     priority: int = 0  # -1 low, 0 normal, 1 high; higher leaves the queue first
+    scheduler: str = ""  # empty: cluster default; otherwise pod schedulerName (volcano, ...)
     not_before: Optional[datetime] = None  # scheduled start; the run stays queued until then
     params: Optional[str] = None  # JSON object, template hyperparameters
     env_json: Optional[str] = None  # JSON object, user env vars
@@ -79,6 +80,11 @@ class ModelVersion(SQLModel, table=True):
     size_bytes: int = 0
     metrics_json: str = "{}"
     showcase_seed: bool = False
+    origin: str = "trained"  # trained | provider
+    provider: str = ""
+    base_url: str = ""
+    upstream_model: str = ""
+    upstream_key: str = ""
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -110,6 +116,18 @@ class InferenceService(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
+
+
+class ServiceKey(SQLModel, table=True):
+    """An extra caller key for one service. The plain key is shown once."""
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    service_id: str = Field(index=True)
+    name: str = "default"
+    key_hash: str = Field(index=True)
+    key_prefix: str = ""
+    revoked: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class AppSettings(SQLModel, table=True):

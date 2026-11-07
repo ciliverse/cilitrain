@@ -47,7 +47,13 @@ def init_db() -> None:
         _ensure_column(conn, "run", "sweep_id", "VARCHAR")
         _ensure_column(conn, "run", "started_at", "DATETIME")
         _ensure_column(conn, "run", "priority", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "run", "scheduler", "VARCHAR DEFAULT ''")
         _ensure_column(conn, "run", "not_before", "DATETIME")
+        _ensure_column(conn, "modelversion", "origin", "VARCHAR DEFAULT 'trained'")
+        _ensure_column(conn, "modelversion", "provider", "VARCHAR DEFAULT ''")
+        _ensure_column(conn, "modelversion", "base_url", "VARCHAR DEFAULT ''")
+        _ensure_column(conn, "modelversion", "upstream_model", "VARCHAR DEFAULT ''")
+        _ensure_column(conn, "modelversion", "upstream_key", "VARCHAR DEFAULT ''")
 
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:

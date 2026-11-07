@@ -1,0 +1,88 @@
+.obs-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.obs-cluster .field {
+  min-width: 14rem;
+}
+
+.obs-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0.9rem;
+}
+
+.obs-src {
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+
+.obs-src.is-on {
+  color: var(--accent-text);
+  border-color: transparent;
+  background: var(--accent-dim);
+}
+
+.obs-rail {
+  margin-bottom: 1.25rem;
+}
+
+.obs-k {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.obs-v {
+  margin-top: 0.25rem;
+  font-size: 1.05rem;
+}
+
+.obs-sub {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--muted-2);
+}
+
+.obs-bar {
+  margin-top: 0.45rem;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.obs-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.obs-h-row {
+  margin: 1.25rem 0 0.55rem;
+}
+
+.obs-h-row .obs-h {
+  margin: 0;
+}
+
+.obs-h {
+  margin: 1.25rem 0 0.55rem;
+  font-size: 0.95rem;
+}
+
+.obs-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}

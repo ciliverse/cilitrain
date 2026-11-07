@@ -15,6 +15,8 @@
 
 .app-header .cluster-chip {
   max-width: 16rem;
+  min-width: 0;
+  flex: 0 1 auto;
   padding: 0.18rem 0.55rem 0.18rem 0.4rem;
   border-radius: 999px;
   gap: 0.42rem;

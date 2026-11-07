@@ -14,6 +14,9 @@ from app.api.routes import _BOOTSTRAP
 from app.api.schemas import (
     LogsOut,
     ServiceCreate,
+    ServiceKeyCreate,
+    ServiceKeyIssued,
+    ServiceKeyItem,
     ServiceKeyOut,
     ServiceOut,
     ServicePredict,
@@ -22,7 +25,7 @@ from app.api.schemas import (
 )
 from app.config import settings
 from app.db import get_session
-from app.models.entities import Cluster, InferenceService, ModelVersion, Run
+from app.models.entities import Cluster, InferenceService, ModelVersion, Run, ServiceKey
 from app.services.access import can_create_run, has_grant, is_admin
 from app.services.cluster.direct import DirectKube
 from app.services.inference import infer_spec
@@ -37,9 +40,10 @@ from app.services.serving import (
     build_deployment,
     build_service,
     endpoint_path,
+    find_service_by_key,
     forget,
-    key_matches,
     new_api_key,
+    remember_key,
     predict,
     recent_requests,
     resource_name,
@@ -64,8 +68,12 @@ def can_mutate_service(session: Session, cu: CurrentUser, svc: InferenceService)
     return cu.user.role != "viewer" and can_access_service(session, cu, svc)
 
 
+def _is_provider(svc: InferenceService) -> bool:
+    return svc.template == "provider" or not svc.cluster_id
+
+
 def _kube(session: Session, svc: InferenceService) -> DirectKube | None:
-    if svc.simulated:
+    if svc.simulated or _is_provider(svc):
         return None
     cluster = session.get(Cluster, svc.cluster_id)
     if not cluster:
@@ -114,7 +122,8 @@ def _service_out(session: Session, svc: InferenceService, *, sync: bool = True) 
         simulated=svc.simulated,
         error_message=svc.error_message,
         api_key_prefix=svc.api_key_prefix,
-        endpoint_path=endpoint_path(svc.id),
+        endpoint_path="/api/v1/chat/completions" if _is_provider(svc) else endpoint_path(svc.id),
+        protocol="openai" if _is_provider(svc) else "predict",
         requests=svc.requests,
         errors=svc.errors,
         avg_latency_ms=round(svc.total_ms / svc.requests, 1) if svc.requests else None,
@@ -201,6 +210,8 @@ def create_service(
     session: Session = Depends(get_session),
 ) -> ServiceKeyOut:
     m = _get_model(session, cu, body.model_id)
+    if (m.origin or "trained") == "provider":
+        return _create_provider_service(session, cu, m, body)
     spec = infer_spec(m.template)
     if not spec:
         raise HTTPException(status_code=400, detail=f"template {m.template} has no inference support")
@@ -245,7 +256,50 @@ def create_service(
     session.add(svc)
     session.commit()
     session.refresh(svc)
+    remember_key(session, svc, digest, prefix, "default")
     _deploy(session, svc)
+    return ServiceKeyOut(service=_service_out(session, svc, sync=False), api_key=key)
+
+
+def _create_provider_service(
+    session: Session, cu: CurrentUser, m: ModelVersion, body: ServiceCreate
+) -> ServiceKeyOut:
+    """A public model is already hosted upstream, so the service is just a key and a route."""
+    owner = _owner_id(session, cu)
+    active = session.exec(
+        select(InferenceService).where(
+            InferenceService.owner_user_id == owner,
+            InferenceService.status.in_(ACTIVE_STATES),  # type: ignore[attr-defined]
+        )
+    ).all()
+    if len(active) >= MAX_ACTIVE_PER_USER:
+        raise HTTPException(status_code=409, detail=f"at most {MAX_ACTIVE_PER_USER} running services per user")
+    name = (body.name or f"{m.name}-v{m.version}").strip().lower()
+    if not NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="name: lowercase letters, digits and dashes, 2-41 characters")
+    now = datetime.now(timezone.utc)
+    key, digest, prefix = new_api_key()
+    svc = InferenceService(
+        name=name,
+        model_id=m.id,
+        cluster_id="",
+        owner_user_id=owner,
+        namespace="default",
+        template="provider",
+        image="",
+        cpu="0",
+        memory="0",
+        replicas=1,
+        simulated=False,
+        status="running",
+        api_key_hash=digest,
+        api_key_prefix=prefix,
+        started_at=now,
+    )
+    session.add(svc)
+    session.commit()
+    session.refresh(svc)
+    remember_key(session, svc, digest, prefix, "default")
     return ServiceKeyOut(service=_service_out(session, svc, sync=False), api_key=key)
 
 
@@ -293,6 +347,17 @@ def start_service(
         raise HTTPException(status_code=409, detail=f"service is already {svc.status}")
     if not session.get(ModelVersion, svc.model_id):
         raise HTTPException(status_code=409, detail="the model of this service no longer exists")
+    if _is_provider(svc):
+        now = datetime.now(timezone.utc)
+        svc.status = "running"
+        svc.error_message = None
+        svc.started_at = now
+        svc.stopped_at = None
+        svc.updated_at = now
+        session.add(svc)
+        session.commit()
+        session.refresh(svc)
+        return _service_out(session, svc, sync=False)
     _guard_resources(session, svc, svc.replicas)
     _deploy(session, svc)
     return _service_out(session, svc, sync=False)
@@ -308,7 +373,7 @@ def scale_service(
     svc = _get(session, cu, service_id, mutate=True)
     if body.replicas > MAX_REPLICAS:
         raise HTTPException(status_code=400, detail=f"at most {MAX_REPLICAS} replicas")
-    if svc.status in ACTIVE_STATES:
+    if svc.status in ACTIVE_STATES and not _is_provider(svc):
         _guard_resources(session, svc, body.replicas, already_counted=svc.replicas)
         kube = _kube(session, svc)
         if kube is not None:
@@ -329,13 +394,86 @@ def rotate_service_key(
 ) -> ServiceKeyOut:
     """Issue a new API key; the old one stops working immediately."""
     svc = _get(session, cu, service_id, mutate=True)
+    old = svc.api_key_hash
     key, digest, prefix = new_api_key()
     svc.api_key_hash, svc.api_key_prefix = digest, prefix
     svc.updated_at = datetime.now(timezone.utc)
+    row = session.exec(select(ServiceKey).where(ServiceKey.service_id == svc.id, ServiceKey.key_hash == old)).first()
+    if row is not None:
+        row.key_hash, row.key_prefix, row.revoked = digest, prefix, False
+        session.add(row)
+    else:
+        session.add(ServiceKey(service_id=svc.id, name="default", key_hash=digest, key_prefix=prefix))
     session.add(svc)
     session.commit()
     session.refresh(svc)
     return ServiceKeyOut(service=_service_out(session, svc, sync=False), api_key=key)
+
+
+def _key_item(row: ServiceKey) -> ServiceKeyItem:
+    return ServiceKeyItem(
+        id=row.id, name=row.name, key_prefix=row.key_prefix, revoked=row.revoked, created_at=row.created_at
+    )
+
+
+@router.get("/services/{service_id}/keys", response_model=list[ServiceKeyItem])
+def list_service_keys(
+    service_id: str,
+    cu: Annotated[CurrentUser, Depends(get_current_user)],
+    session: Session = Depends(get_session),
+) -> list[ServiceKeyItem]:
+    svc = _get(session, cu, service_id)
+    rows = list(session.exec(select(ServiceKey).where(ServiceKey.service_id == svc.id)).all())
+    rows.sort(key=lambda row: row.created_at, reverse=True)
+    if rows:
+        return [_key_item(row) for row in rows]
+    if svc.api_key_prefix:
+        return [
+            ServiceKeyItem(
+                id="primary", name="default", key_prefix=svc.api_key_prefix, revoked=False, created_at=svc.created_at
+            )
+        ]
+    return []
+
+
+@router.post("/services/{service_id}/keys", response_model=ServiceKeyIssued)
+def issue_service_key(
+    service_id: str,
+    body: ServiceKeyCreate,
+    cu: Annotated[CurrentUser, Depends(get_current_user)],
+    session: Session = Depends(get_session),
+) -> ServiceKeyIssued:
+    svc = _get(session, cu, service_id, mutate=True)
+    name = (body.name or "default").strip()[:40] or "default"
+    key, digest, prefix = new_api_key()
+    row = remember_key(session, svc, digest, prefix, name)
+    return ServiceKeyIssued(key=_key_item(row), api_key=key)
+
+
+@router.delete("/services/{service_id}/keys/{key_id}")
+def revoke_service_key(
+    service_id: str,
+    key_id: str,
+    cu: Annotated[CurrentUser, Depends(get_current_user)],
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    svc = _get(session, cu, service_id, mutate=True)
+    row = session.get(ServiceKey, key_id)
+    if row is None or row.service_id != svc.id:
+        raise HTTPException(status_code=404, detail="key not found")
+    row.revoked = True
+    if svc.api_key_hash == row.key_hash:
+        live = [
+            other
+            for other in session.exec(select(ServiceKey).where(ServiceKey.service_id == svc.id)).all()
+            if other.id != row.id and not other.revoked
+        ]
+        svc.api_key_hash = live[0].key_hash if live else None
+        svc.api_key_prefix = live[0].key_prefix if live else None
+        session.add(svc)
+    session.add(row)
+    session.commit()
+    return {"status": "revoked"}
 
 
 @router.delete("/services/{service_id}")
@@ -360,6 +498,8 @@ def service_logs(
     session: Session = Depends(get_session),
 ) -> LogsOut:
     svc = _get(session, cu, service_id)
+    if _is_provider(svc):
+        return LogsOut(pod_name=None, logs="[cilitrain] public model; requests are forwarded to the provider\n")
     if svc.status not in ACTIVE_STATES:
         return LogsOut(pod_name=None, logs="")
     kube = _kube(session, svc)
@@ -394,6 +534,8 @@ def predict_as_user(
 ) -> dict[str, Any]:
     """Try the service from the UI with the signed-in session instead of the API key."""
     svc = _get(session, cu, service_id)
+    if _is_provider(svc):
+        raise HTTPException(status_code=400, detail="this service uses POST /v1/chat/completions")
     sync_service(session, svc, _kube(session, svc))
     return predict(session, svc, _kube(session, svc), body.model_dump(exclude_none=True))
 
@@ -409,8 +551,11 @@ def predict_with_key(
     auth = request.headers.get("Authorization") or ""
     key = auth[7:].strip() if auth.lower().startswith("bearer ") else request.headers.get("X-API-Key", "")
     svc = session.get(InferenceService, service_id)
-    if not svc or not key or not key_matches(svc, key):
+    found = find_service_by_key(session, key) if key else None
+    if not svc or found is None or found.id != svc.id:
         raise HTTPException(status_code=401, detail="invalid service API key")
+    if _is_provider(svc):
+        raise HTTPException(status_code=400, detail="this service uses POST /v1/chat/completions")
     kube = _kube(session, svc)
     sync_service(session, svc, kube)
     return predict(session, svc, kube, body.model_dump(exclude_none=True))

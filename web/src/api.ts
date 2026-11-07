@@ -17,6 +17,129 @@ export type ClusterProbe = {
   gpu_allocatable?: number | null
 }
 
+export type WorkloadEvent = {
+  type: string
+  reason: string
+  message: string
+  count: number
+  created_at?: string | null
+}
+
+export type WorkloadPod = {
+  name: string
+  phase: string
+  node?: string | null
+  restarts: number
+  reason?: string | null
+  started_at?: string | null
+  ip?: string | null
+  qos?: string | null
+  ready?: boolean
+  image?: string
+  cpu?: string
+  memory?: string
+}
+
+export type TrainingWorkload = {
+  kind?: string
+  name: string
+  display_name: string
+  namespace: string
+  run_id?: string | null
+  service_id?: string | null
+  status: string
+  image?: string
+  cpu?: string
+  memory?: string
+  gpu?: number
+  scheduler?: string
+  template?: string
+  message?: string | null
+  active?: number
+  succeeded?: number
+  failed?: number
+  created_at?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  parallelism?: number
+  completions?: number
+  backoff_limit?: number
+  deadline_seconds?: number | null
+  restart_policy?: string
+  events?: WorkloadEvent[]
+  pods?: WorkloadPod[]
+}
+
+export type ClusterNodeBrief = {
+  name: string
+  ready: boolean
+  cpu: string
+  memory: string
+  gpu: number
+  roles?: string
+  kubelet?: string
+  ip?: string
+  pressure?: string
+}
+
+export type ObserveNode = {
+  name: string
+  ready: boolean
+  cpu_alloc: number | null
+  cpu_used: number | null
+  mem_alloc_mi: number | null
+  mem_used_mi: number | null
+  gpu_alloc: number
+  gpu_util: number | null
+}
+
+export type ObserveTrain = {
+  id: string
+  name: string
+  status: string
+  template: string
+  gpu: number
+  cpu_cores: number | null
+  memory_mi: number | null
+  metric_key?: string | null
+  metric_last: number | null
+  points: number[]
+}
+
+export type ObserveInfer = {
+  id: string
+  name: string
+  status: string
+  provider: boolean
+  on_cluster: boolean
+  requests: number
+  errors: number
+  avg_latency_ms: number | null
+  replicas: number
+  cpu_cores: number | null
+  memory_mi: number | null
+}
+
+export type ObserveView = {
+  cluster_id: string
+  cluster_name: string
+  clusters: { id: string; name: string }[]
+  cluster_error?: string | null
+  sources: { metrics_server: boolean; prometheus: boolean; gpu_util: boolean; simulated?: boolean }
+  totals: {
+    cpu_alloc: number | null
+    cpu_used: number | null
+    mem_alloc_mi: number | null
+    mem_used_mi: number | null
+    gpu_alloc: number
+    gpu_util: number | null
+    gpu_count: number
+  }
+  nodes: ObserveNode[]
+  training: ObserveTrain[]
+  inference: ObserveInfer[]
+}
+
 export type Template = {
   id: string
   name: string
@@ -96,6 +219,7 @@ export type Run = {
   queue_position?: number | null
   queue_reason?: QueueReason | null
   priority?: Priority
+  scheduler?: string
   not_before?: string | null
   started_at?: string | null
   created_at: string
@@ -154,6 +278,28 @@ export type ModelVersion = {
   infer?: InferSpec | null
   infer_count: number
   showcase_seed?: boolean
+  origin?: 'trained' | 'provider'
+  provider?: string | null
+  base_url?: string | null
+  upstream_model?: string | null
+  has_upstream_key?: boolean
+  created_at: string
+}
+
+export type ProviderInfo = {
+  id: string
+  label: string
+  base_url: string
+  model_hint: string
+  models?: string[]
+  model_versions?: Record<string, string>
+}
+
+export type ServiceKeyRow = {
+  id: string
+  name: string
+  key_prefix: string
+  revoked: boolean
   created_at: string
 }
 
@@ -182,6 +328,8 @@ export type InferenceService = {
   error_message?: string | null
   api_key_prefix?: string | null
   endpoint_path: string
+  protocol?: 'predict' | 'openai'
+  openai_path?: string
   requests: number
   errors: number
   avg_latency_ms?: number | null
@@ -397,8 +545,16 @@ export const api = {
   templates: () => req<Template[]>('/api/templates'),
   clusters: () => req<Cluster[]>('/api/clusters'),
   clusterProbe: (id: string) => req<ClusterProbe>(`/api/clusters/${id}/probe`),
+  observe: (clusterId?: string) =>
+    req<ObserveView>(`/api/observe${clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : ''}`),
+  clusterWorkloads: (id: string) =>
+    req<{ cluster_id: string; items: TrainingWorkload[]; nodes: ClusterNodeBrief[] }>(
+      `/api/clusters/${id}/workloads`,
+    ),
   createCluster: (body: Record<string, unknown>) =>
     req<Cluster>('/api/clusters', { method: 'POST', body: JSON.stringify(body) }),
+  updateCluster: (id: string, body: Record<string, unknown>) =>
+    req<Cluster>(`/api/clusters/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteCluster: (id: string) => req<{ status: string }>(`/api/clusters/${id}`, { method: 'DELETE' }),
   settings: () =>
     req<{
@@ -459,6 +615,14 @@ export const api = {
       metrics: Record<string, MetricsView>
     }>(`/api/compare/runs?ids=${ids.map(encodeURIComponent).join(',')}`),
   models: () => req<ModelVersion[]>('/api/models'),
+  providers: () => req<ProviderInfo[]>('/api/providers'),
+  addProviderModel: (body: {
+    name: string
+    provider: string
+    upstream_model: string
+    base_url?: string
+    api_key?: string
+  }) => req<ModelVersion>('/api/models/providers', { method: 'POST', body: JSON.stringify(body) }),
   model: (id: string) => req<ModelVersion>(`/api/models/${id}`),
   modelRuns: (id: string) => req<Run[]>(`/api/models/${id}/runs`),
   registerModel: (runId: string, name: string) =>
@@ -480,6 +644,19 @@ export const api = {
   scaleService: (id: string, replicas: number) =>
     req<InferenceService>(`/api/services/${id}/replicas`, { method: 'PUT', body: JSON.stringify({ replicas }) }),
   rotateServiceKey: (id: string) => req<ServiceWithKey>(`/api/services/${id}/rotate-key`, { method: 'POST' }),
+  serviceKeys: (id: string) => req<ServiceKeyRow[]>(`/api/services/${id}/keys`),
+  issueServiceKey: (id: string, name: string) =>
+    req<{ key: ServiceKeyRow; api_key: string }>(`/api/services/${id}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  revokeServiceKey: (id: string, keyId: string) =>
+    req<{ status: string }>(`/api/services/${id}/keys/${keyId}`, { method: 'DELETE' }),
+  serviceChat: (id: string, content: string) =>
+    req<{ choices?: { message?: { content?: string } }[] }>(`/api/services/${id}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ model: 'cilitrain', messages: [{ role: 'user', content }] }),
+    }),
   deleteService: (id: string) => req<{ status: string }>(`/api/services/${id}`, { method: 'DELETE' }),
   serviceLogs: (id: string) => req<{ logs: string }>(`/api/services/${id}/logs`),
   servicePredict: (id: string, input: Record<string, string | number>) =>

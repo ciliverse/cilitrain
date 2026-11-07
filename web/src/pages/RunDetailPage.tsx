@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, downloadFile, type AuthUser, type MetricsView, type Run } from '../api'
 import CodeBlock from '../components/CodeBlock'
+import { hostText, RevealNodesButton, useRevealNodes } from '../components/NodePrivacy'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ExtIcon from '../components/ExtIcon'
 import LiveChip from '../components/LiveChip'
@@ -25,6 +26,20 @@ function isTerminal(status?: string) {
 
 function isMissingCluster(message: string) {
   return /cluster not found/i.test(message)
+}
+
+function lastLogAt(logs: string): Date | null {
+  const lines = logs.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(
+      /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?((?:[+-]\d{2}:\d{2})|Z)\b/,
+    )
+    if (!m) continue
+    const frac = (m[2] || '0').slice(0, 3).padEnd(3, '0')
+    const d = new Date(`${m[1]}.${frac}${m[3]}`)
+    if (!Number.isNaN(d.getTime())) return d
+  }
+  return null
 }
 
 function preferLogs(prev: string, next: string) {
@@ -92,6 +107,7 @@ export default function RunDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
   const { t, statusLabel, lang } = useI18n()
+  const { show: showNodes } = useRevealNodes()
   const [run, setRun] = useState<Run | null>(null)
   const [logs, setLogs] = useState('')
   const [pod, setPod] = useState<string | null>(null)
@@ -479,6 +495,14 @@ export default function RunDetailPage() {
               {t('resumeAction')}
             </Link>
           )}
+          {me?.role !== 'viewer' && run && run.kind !== 'infer' && isTerminal(run.status) && (
+            <Link
+              to={`/new?from=${run.id}`}
+              className={run.status === 'succeeded' ? 'btn btn-secondary' : 'btn btn-primary'}
+            >
+              {t('editRerun')}
+            </Link>
+          )}
           {me?.role !== 'viewer' && run && isTerminal(run.status) && (
             <>
               <button
@@ -562,6 +586,18 @@ export default function RunDetailPage() {
             <dd className="mono">{formatLocalDateTime(run.not_before, lang)}</dd>
           </div>
         ) : null}
+        {run ? (
+          <div>
+            <dt>{t('newScheduler')}</dt>
+            <dd className="mono">
+              {run.scheduler === 'volcano'
+                ? t('schedVolcano')
+                : run.scheduler
+                  ? run.scheduler
+                  : t('schedPlatform')}
+            </dd>
+          </div>
+        ) : null}
         {run?.priority ? (
           <div>
             <dt>{t('newPriority')}</dt>
@@ -612,7 +648,15 @@ export default function RunDetailPage() {
         </p>
       )}
       {run?.error_message && (
-        <p className="flash flash-err">{formatApiMessage(run.error_message, t)}</p>
+        <p className="flash flash-err">
+          {formatApiMessage(run.error_message, t)}
+          {me?.role !== 'viewer' && run.kind !== 'infer' && (run.status === 'failed' || run.status === 'timeout') && (
+            <>
+              {' '}
+              <Link to={`/new?from=${run.id}`}>{t('editRerun')}</Link>
+            </>
+          )}
+        </p>
       )}
       {run?.status === 'queued' && (
         <p className="flash flash-info">
@@ -775,11 +819,14 @@ export default function RunDetailPage() {
           !metrics.resource.frozen &&
           !isTerminal(run?.status) && (
             <div className="space-y-1.5">
-              <div className="metric-k">{t('clusterNodes')}</div>
+              <div className="obs-h-row">
+                <div className="metric-k">{t('clusterNodes')}</div>
+                <RevealNodesButton />
+              </div>
               <div className="hint-row">
                 {metrics.resource.nodes.map((n) => (
                   <span key={n.name} className="hint-chip">
-                    {n.name} · CPU {n.cpu || '—'} · Mem {n.memory || '—'}
+                    {hostText(n.name, showNodes)} · CPU {n.cpu || '—'} · Mem {n.memory || '—'}
                   </span>
                 ))}
               </div>
@@ -832,26 +879,26 @@ export default function RunDetailPage() {
           <h2 className="font-semibold">{t('spec')}</h2>
           <dl className="spec-grid mt-3 text-[var(--muted)]">
             <div>
-              <dt>Template</dt>
+              <dt>{t('template')}</dt>
               <dd className="text-[var(--text)]">{run?.template}</dd>
             </div>
-            <div>
-              <dt>Image</dt>
+            <div className="spec-wide">
+              <dt>{t('image')}</dt>
               <dd className="mono text-[var(--text)]">{run?.image}</dd>
             </div>
             <div>
-              <dt>Resources</dt>
+              <dt>{t('specResources')}</dt>
               <dd className="mono text-[var(--text)]">
                 {run?.cpu} / {run?.memory}
                 {(run?.gpu_count ?? 0) > 0 ? ` · GPU×${run?.gpu_count}` : ''}
               </dd>
             </div>
             <div>
-              <dt>Timeout</dt>
+              <dt>{t('specTimeoutShort')}</dt>
               <dd className="mono text-[var(--text)]">{run?.timeout_seconds}s</dd>
             </div>
             <div>
-              <dt>Pod</dt>
+              <dt>{t('specPod')}</dt>
               <dd className="mono text-[var(--text)]">{run?.pod_name || '—'}</dd>
             </div>
           </dl>
@@ -920,6 +967,15 @@ export default function RunDetailPage() {
             </button>
           </div>
         </div>
+        {isActive(run?.status) && phase?.kind === 'installing' && (() => {
+          const at = lastLogAt(logs)
+          if (at && Date.now() - at.getTime() < 20000) return null
+          return (
+            <p className="flash flash-info log-quiet">
+              {t('logQuietInstall').replace('{time}', at ? formatLocalDateTime(at, lang) : '—')}
+            </p>
+          )
+        })()}
         <pre ref={logRef} className="log-pane mono">
           {logs || t('none')}
         </pre>

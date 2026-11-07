@@ -16,6 +16,7 @@ from app.models.entities import ModelVersion, Run, User
 from app.services.access import can_access_run, is_admin
 from app.services.artifacts import read_local_artifact
 from app.services.inference import infer_spec
+from app.services.providers import provider_base_url
 from app.services.metrics import load_metrics_json
 from app.services.training import loads_json
 
@@ -99,6 +100,49 @@ def register_model(session: Session, run: Run, name: str, owner_user_id: str | N
     return m
 
 
+def register_provider_model(
+    session: Session,
+    *,
+    name: str,
+    provider: str,
+    upstream_model: str,
+    base_url: str,
+    api_key: str,
+    owner_user_id: str | None,
+) -> ModelVersion:
+    if not NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="name must be 2–41 chars: lowercase, digits, hyphens")
+    model_id = upstream_model.strip()
+    if not model_id or len(model_id) > 120:
+        raise HTTPException(status_code=400, detail="upstream model id is required")
+    try:
+        url = provider_base_url(provider, base_url)
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"unknown provider {provider}") from None
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="base url must start with http:// or https://")
+    secret = api_key.strip()
+    if provider != "ollama" and not secret:
+        raise HTTPException(status_code=400, detail="provider api key is required")
+    latest = session.exec(select(ModelVersion).where(ModelVersion.name == name)).all()
+    version = max((row.version for row in latest), default=0) + 1
+    m = ModelVersion(
+        name=name,
+        version=version,
+        template="provider",
+        owner_user_id=owner_user_id,
+        origin="provider",
+        provider=provider,
+        base_url=url,
+        upstream_model=model_id,
+        upstream_key=secret,
+    )
+    session.add(m)
+    session.commit()
+    session.refresh(m)
+    return m
+
+
 def can_access_model(session: Session, user: User, m: ModelVersion) -> bool:
     if is_admin(user) or m.showcase_seed or m.owner_user_id == user.id:
         return True
@@ -124,8 +168,13 @@ def model_out(session: Session, m: ModelVersion) -> dict[str, Any]:
         "files": json.loads(m.files_json or "[]"),
         "size_bytes": m.size_bytes,
         "metrics": json.loads(m.metrics_json or "{}"),
-        "infer": infer_spec(m.template),
+        "infer": None if m.origin == "provider" else infer_spec(m.template),
         "infer_count": int(infer_count or 0),
         "showcase_seed": m.showcase_seed,
+        "origin": m.origin or "trained",
+        "provider": m.provider or None,
+        "base_url": m.base_url or None,
+        "upstream_model": m.upstream_model or None,
+        "has_upstream_key": bool(m.upstream_key),
         "created_at": m.created_at,
     }

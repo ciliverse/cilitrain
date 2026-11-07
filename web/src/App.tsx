@@ -11,6 +11,7 @@ import SettingsPage from './pages/SettingsPage'
 import SchedulerPage from './pages/SchedulerPage'
 import ClustersPage from './pages/ClustersPage'
 import ComparePage from './pages/ComparePage'
+import ObservePage from './pages/ObservePage'
 import PipelinesPage from './pages/PipelinesPage'
 import ModelsPage from './pages/ModelsPage'
 import ModelDetailPage from './pages/ModelDetailPage'
@@ -342,6 +343,7 @@ function AppRoutes() {
                 <Route path="/services" element={<ServicesPage />} />
                 <Route path="/services/:id" element={<ServiceDetailPage />} />
                 <Route path="/compare" element={<ComparePage />} />
+                <Route path="/observe" element={<ObservePage />} />
                 <Route path="/pipelines" element={<PipelinesPage />} />
                 <Route path="/clusters" element={<ClustersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

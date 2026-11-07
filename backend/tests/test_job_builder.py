@@ -61,6 +61,22 @@ def test_guardrail_cpu():
     assert ei.value.status_code == 400
 
 
+def test_job_name_is_the_training_name():
+    from app.services.job_builder import disambiguate_job_name, job_name_for
+
+    assert job_name_for("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "NanoGPT Run 1") == "nanogpt-run-1"
+    assert not job_name_for("id", "sklearn-cpu").startswith("cilitrain")
+    again = disambiguate_job_name("sklearn-cpu", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    assert again.startswith("sklearn-cpu-")
+    assert "cilitrain" not in again
+    job = _tiny_job(name="nanogpt-cpu-4821")
+    assert job["metadata"]["name"] == "nanogpt-cpu-4821"
+    assert "schedulerName" not in _tiny_job()["spec"]["template"]["spec"]
+    volcano = _tiny_job(scheduler="volcano")
+    assert volcano["spec"]["template"]["spec"]["schedulerName"] == "volcano"
+    assert volcano["metadata"]["annotations"]["cilitrain.io/scheduler"] == "volcano"
+
+
 def test_build_job_labels():
     run_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     job = build_job(

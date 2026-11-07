@@ -16,6 +16,8 @@ from app.api.model_routes import router as model_router
 from app.api.routes import dispatch_queue, router
 from app.api.service_routes import router as service_router
 from app.api.service_routes import sync_active_services
+from app.api.observe_routes import router as observe_router
+from app.api.openai_routes import router as openai_router
 from app.config import settings
 from app.db import engine, init_db
 from app.services.auth import backfill_owners, bootstrap_admin
@@ -38,6 +40,8 @@ app.include_router(auth_router)
 app.include_router(router)
 app.include_router(model_router)
 app.include_router(service_router)
+app.include_router(openai_router)
+app.include_router(observe_router)
 
 
 @app.on_event("startup")

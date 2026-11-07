@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.models.entities import InferenceService
 from app.services.inference import deliver_files, infer_spec, validate_infer_input, wait_for_model, _kube_sink
@@ -71,6 +71,35 @@ def hash_key(key: str) -> str:
 
 def key_matches(svc: InferenceService, key: str) -> bool:
     return bool(svc.api_key_hash) and secrets.compare_digest(svc.api_key_hash, hash_key(key))
+
+
+def find_service_by_key(session: Any, key: str) -> InferenceService | None:
+    """Resolve a caller key to its service. Extra keys and the original key both count."""
+    if not key:
+        return None
+    from app.models.entities import ServiceKey
+
+    digest = hash_key(key)
+    row = session.exec(select(ServiceKey).where(ServiceKey.key_hash == digest)).first()
+    if row is not None:
+        if row.revoked:
+            return None
+        return session.get(InferenceService, row.service_id)
+    return session.exec(select(InferenceService).where(InferenceService.api_key_hash == digest)).first()
+
+
+def remember_key(session: Any, svc: InferenceService, digest: str, prefix: str, name: str) -> Any:
+    from app.models.entities import ServiceKey
+
+    row = ServiceKey(service_id=svc.id, name=(name or "default")[:40], key_hash=digest, key_prefix=prefix)
+    session.add(row)
+    if not svc.api_key_hash:
+        svc.api_key_hash = digest
+        svc.api_key_prefix = prefix
+        session.add(svc)
+    session.commit()
+    session.refresh(row)
+    return row
 
 
 # —— Manifests ——

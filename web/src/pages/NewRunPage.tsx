@@ -38,6 +38,7 @@ export default function NewRunPage() {
   const nav = useNavigate()
   const [search, setSearch] = useSearchParams()
   const resumeId = search.get('resume')
+  const fromId = search.get('from')
   const { t } = useI18n()
   const [clusters, setClusters] = useState<Cluster[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
@@ -48,6 +49,8 @@ export default function NewRunPage() {
   const [maxQueued, setMaxQueued] = useState(20)
   const [quota, setQuota] = useState('')
   const [priority, setPriority] = useState<Priority>(0)
+  const [schedulerChoice, setSchedulerChoice] = useState<'platform' | 'volcano' | 'custom'>('platform')
+  const [schedulerCustom, setSchedulerCustom] = useState('')
   const [startAt, setStartAt] = useState('')
   const [maxCpu, setMaxCpu] = useState(8)
   const [maxMemGi, setMaxMemGi] = useState(16)
@@ -66,6 +69,7 @@ export default function NewRunPage() {
   const [paramSt, setParamSt] = useState<ParamState>({ values: {}, sweep: {} })
   const [envRows, setEnvRows] = useState<EnvRow[]>([])
   const [resumeSrc, setResumeSrc] = useState<Run | null>(null)
+  const [fromSrc, setFromSrc] = useState<Run | null>(null)
   const [me, setMe] = useState<AuthUser | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -76,7 +80,7 @@ export default function NewRunPage() {
       api.templates(),
       api.settings(),
       api.me().catch(() => null),
-      resumeId ? api.run(resumeId) : Promise.resolve(null),
+      resumeId || fromId ? api.run((resumeId || fromId) as string) : Promise.resolve(null),
     ])
       .then(([cs, ts, st, u, src]) => {
         setClusters(cs)
@@ -97,12 +101,48 @@ export default function NewRunPage() {
           ts.find((x) => x.id === 'sklearn-cpu') ||
           ts[0]
         const srcTmpl = src ? ts.find((x) => x.id === src.template) : undefined
-        if (src && srcTmpl) applyResume(src, srcTmpl)
+        if (src && fromId && !resumeId) applyClone(src, srcTmpl)
+        else if (src && srcTmpl) applyResume(src, srcTmpl)
         else if (tmpl) applyTemplate(tmpl)
       })
       .catch((e) => setErr(String(e.message || e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeId])
+  }, [resumeId, fromId])
+
+  function applyClone(src: Run, tmpl?: Template) {
+    setFromSrc(src)
+    setResumeSrc(null)
+    setClusterId(src.cluster_id)
+    setTemplateId(tmpl?.id || src.template || 'custom')
+    setName(src.name)
+    setNamespace(src.namespace)
+    setImage(src.image)
+    setCommand(JSON.stringify(src.command || []))
+    setArgs(JSON.stringify(src.args || []))
+    setCpu(src.cpu)
+    setMemory(src.memory)
+    setGpuCount(src.gpu_count ?? 0)
+    setTimeoutSec(src.timeout_seconds)
+    setPvc(src.pvc_name || '')
+    setPvcMount(src.pvc_mount_path || '/data')
+    setScript(src.script || tmpl?.script || '')
+    setParamSt(paramState(tmpl?.params || [], src.params))
+    setEnvRows(rowsFromEnv(src.env))
+    setPriority((src.priority ?? 0) as Priority)
+    const sched = (src.scheduler || '').trim()
+    if (!sched) setSchedulerChoice('platform')
+    else if (sched === 'volcano') setSchedulerChoice('volcano')
+    else {
+      setSchedulerChoice('custom')
+      setSchedulerCustom(sched)
+    }
+  }
+
+  function clearClone() {
+    setFromSrc(null)
+    search.delete('from')
+    setSearch(search, { replace: true })
+  }
 
   function applyResume(src: Run, tmpl: Template) {
     applyTemplate(tmpl)
@@ -140,6 +180,7 @@ export default function NewRunPage() {
     setScript(tmpl.script || '')
     setParamSt(paramState(tmpl.params || []))
     setResumeSrc(null)
+    setFromSrc(null)
     if (tmpl.id !== 'custom') setName(`${tmpl.id}-${Date.now().toString().slice(-4)}`)
   }
 
@@ -152,6 +193,15 @@ export default function NewRunPage() {
       const hasEditor = Boolean((tmpl?.script && tmpl.script.length > 0) || script.trim())
       if (hasEditor && !script.trim()) {
         setErr(t('scriptEmpty'))
+        setBusy(false)
+        return
+      }
+      const customScheduler = schedulerCustom.trim().toLowerCase()
+      if (
+        schedulerChoice === 'custom' &&
+        (customScheduler.length > 63 || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(customScheduler))
+      ) {
+        setErr(t('newSchedulerHint'))
         setBusy(false)
         return
       }
@@ -179,6 +229,12 @@ export default function NewRunPage() {
         env: envFromRows(envRows),
         resume_from: resumeSrc?.id ?? null,
         priority,
+        scheduler:
+          schedulerChoice === 'volcano'
+            ? 'volcano'
+            : schedulerChoice === 'custom'
+              ? schedulerCustom.trim().toLowerCase()
+              : '',
         start_at: startAt ? new Date(startAt).toISOString() : null,
       }
       if (sweeping) {
@@ -199,14 +255,14 @@ export default function NewRunPage() {
   const selectedTmpl = templates.find((x) => x.id === templateId)
   const paramFields = selectedTmpl?.params || []
   const parsed = parseParams(paramFields, paramSt)
-  const sweeping = !resumeSrc && parsed.combos > 0
+  const sweeping = !resumeSrc && !fromSrc && parsed.combos > 0
   const sweepOver = sweeping && parsed.combos > SWEEP_MAX_RUNS
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1 className="page-title">{t('newTitle')}</h1>
+          <h1 className="page-title">{fromSrc ? t('editRerunTitle') : t('newTitle')}</h1>
           <div className="hint-row mt-3" aria-label={t('newDesc')}>
             <span className="hint-chip">{t('newGuardCpu').replace('{n}', String(maxCpu))}</span>
             <span className="hint-chip">{t('newGuardMem').replace('{n}', String(maxMemGi))}</span>
@@ -220,6 +276,27 @@ export default function NewRunPage() {
       </div>
       {me?.role === 'viewer' && <p className="flash flash-warn mt-4">{t('showcaseViewerHint')}</p>}
       {err && <p className="flash flash-err mt-4">{formatApiMessage(err, t)}</p>}
+      {fromSrc && (
+        <div className="flash flash-info mt-4 resume-banner">
+          <span>
+            {t('editRerunBanner')
+              .split('{name}')
+              .flatMap((part, i) =>
+                i === 0
+                  ? [part]
+                  : [
+                      <Link key="src" to={`/runs/${fromSrc.id}`}>
+                        {fromSrc.name}
+                      </Link>,
+                      part,
+                    ],
+              )}
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={clearClone}>
+            {t('editRerunCancel')}
+          </button>
+        </div>
+      )}
       {resumeSrc && (
         <div className="flash flash-info mt-4 resume-banner">
           <span>
@@ -276,7 +353,7 @@ export default function NewRunPage() {
                 <select
                   className={field}
                   value={templateId}
-                  disabled={Boolean(resumeSrc)}
+                  disabled={Boolean(resumeSrc || fromSrc)}
                   onChange={(e) => {
                     const tmpl = templates.find((x) => x.id === e.target.value)
                     if (tmpl) applyTemplate(tmpl)
@@ -333,6 +410,33 @@ export default function NewRunPage() {
                 />
               </label>
             </div>
+            <div className="pvc-row">
+              <label className="label">
+                {t('newScheduler')}
+                <select
+                  className={field}
+                  value={schedulerChoice}
+                  onChange={(e) => setSchedulerChoice(e.target.value as 'platform' | 'volcano' | 'custom')}
+                >
+                  <option value="platform">{t('schedPlatform')}</option>
+                  <option value="volcano">{t('schedVolcano')}</option>
+                  <option value="custom">{t('schedOther')}</option>
+                </select>
+              </label>
+              {schedulerChoice === 'custom' ? (
+                <label className="label">
+                  {t('schedOtherName')}
+                  <input
+                    className={`${field} mono`}
+                    value={schedulerCustom}
+                    placeholder="yunikorn"
+                    spellCheck={false}
+                    onChange={(e) => setSchedulerCustom(e.target.value)}
+                  />
+                </label>
+              ) : null}
+            </div>
+            <p className="spec-tmpl-hint">{t('newSchedulerHint')}</p>
             <p className="spec-tmpl-hint">
               {t('newPriorityHint')} {t('newStartAtHint')}
             </p>
@@ -427,7 +531,7 @@ export default function NewRunPage() {
                 fields={paramFields}
                 state={paramSt}
                 onChange={setParamSt}
-                allowSweep={!resumeSrc}
+                allowSweep={!resumeSrc && !fromSrc}
               />
             </section>
           )}
@@ -469,9 +573,11 @@ export default function NewRunPage() {
               ? t('submitting')
               : sweeping
                 ? t('submitSweep').replace('{n}', String(parsed.combos))
-                : resumeSrc
-                  ? t('resumeAction')
-                  : t('submit')}
+                : fromSrc
+                  ? t('editRerunSubmit')
+                  : resumeSrc
+                    ? t('resumeAction')
+                    : t('submit')}
           </button>
         </div>
       </form>

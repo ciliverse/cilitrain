@@ -1,7 +1,7 @@
 import yaml
 
 from app.api.routes import _templates, template_files
-from app.services.job_builder import build_job, build_script_configmap, job_name_for
+from app.services.job_builder import build_job, build_script_configmap
 
 RUN = "11111111-2222-3333-4444-555555555555"
 
@@ -26,7 +26,8 @@ def test_files_mount_as_configmap_volume():
     job = _job(files={"train.py": "print('hi')\n"})
     spec = job["spec"]["template"]["spec"]
     vol = next(v for v in spec["volumes"] if v["name"] == "scripts")
-    assert vol["configMap"]["name"] == f"{job_name_for(RUN)}-scripts"
+    assert job["metadata"]["name"] == "demo"
+    assert vol["configMap"]["name"] == "demo-scripts"
     mount = next(
         m for m in spec["containers"][0]["volumeMounts"] if m["name"] == "scripts"
     )
@@ -45,9 +46,10 @@ def test_script_configmap_manifest():
         namespace="default",
         template="nanogpt-cpu",
         files={"train.py": "print('hi')\n"},
+        name="nanogpt-cpu",
     )
     assert cm["kind"] == "ConfigMap"
-    assert cm["metadata"]["name"] == f"{job_name_for(RUN)}-scripts"
+    assert cm["metadata"]["name"] == "nanogpt-cpu-scripts"
     assert cm["metadata"]["namespace"] == "default"
     assert cm["data"]["train.py"] == "print('hi')\n"
     assert cm["metadata"]["labels"]["cilitrain.io/run"] == RUN

@@ -125,17 +125,23 @@ export default function ModelDetailPage() {
             </h1>
           </div>
           <div className="runs-head-meta">
-            {model && <span className="mono">{model.template}</span>}
+            {model?.origin === 'provider' ? (
+              <span className="mono">
+                {model.provider} · {model.upstream_model}
+              </span>
+            ) : (
+              model && <span className="mono">{model.template}</span>
+            )}
           </div>
         </div>
-        {model && (model.files.length > 0 || (model.infer && !viewer)) && (
+        {model && (model.files.length > 0 || ((model.infer || model.origin === 'provider') && !viewer)) && (
           <div className="flex flex-wrap items-center gap-2">
             {model.files.length > 0 && (
               <button type="button" className="btn btn-secondary" onClick={downloadModel}>
                 {t('modelDownload')}
               </button>
             )}
-            {model.infer && !viewer && (
+            {(model.infer || model.origin === 'provider') && !viewer && (
               <button
                 type="button"
                 className="btn btn-primary"
@@ -156,7 +162,9 @@ export default function ModelDetailPage() {
           <div>
             <dt>{t('modelFrom')}</dt>
             <dd>
-              {model.source_run_id ? (
+              {model.origin === 'provider' ? (
+                <span className="mono">{model.base_url}</span>
+              ) : model.source_run_id ? (
                 <Link to={`/runs/${model.source_run_id}`} className="mono">
                   {model.source_run_name || model.source_run_id.slice(0, 8)}
                 </Link>
@@ -189,7 +197,7 @@ export default function ModelDetailPage() {
 
       {err && <p className="flash flash-err">{err}</p>}
 
-      {model && (
+      {model && model.origin !== 'provider' && (
         <div className="infer-layout">
           <section className="panel panel-pad">
             <div className="panel-head">
@@ -323,6 +331,7 @@ export default function ModelDetailPage() {
         initialName={model ? `${model.name}-v${model.version}`.slice(0, 41) : ''}
         busy={busy}
         error={deployErr}
+        provider={model?.origin === 'provider'}
         onSubmit={deploy}
         onClose={() => setDeployOpen(false)}
       />
